@@ -35,6 +35,32 @@ def read_build_info(project_dir):
     with open(build_info_path, 'r') as file:
         return yaml.safe_load(file)
 
+# Function to populate the 'files[]' section with contents from the 'payload' folder
+def populate_files_section(project_dir, config):
+    payload_dir = Path(project_dir) / "payload"
+    files_list = []
+    
+    if not payload_dir.exists():
+        print(f"Error: Payload directory {payload_dir} does not exist.")
+        sys.exit(1)
+
+    for file_path in payload_dir.rglob('*'):
+        if file_path.is_file():
+            # Create a file entry
+            file_entry = {
+                "source": str(file_path).replace("\\", "/"),
+                "destination": f"[INSTALLFOLDER]{file_path.relative_to(payload_dir)}",
+                "component_id": f"Component_{file_path.stem}"
+            }
+            files_list.append(file_entry)
+    
+    # Update the config with the new files list
+    config['files'] = files_list
+
+    # Write the updated config back to the YAML file
+    with open(Path(project_dir) / BUILD_INFO_FILE, 'w') as file:
+        yaml.dump(config, file, default_flow_style=False)
+
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
     # Create the src directory if it doesn't exist
@@ -147,7 +173,7 @@ def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
     parser.add_argument('project_dir', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
-    parser.add_argument('--import', metavar='MSI_FILE', help="Import an existing MSI package as a project.")
+    parser.add_argument('--import_msi', metavar='MSI_FILE', help="Import an existing MSI package as a project.")
     parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.", default='output')
     parser.add_argument('--quiet', action='store_true', help="Suppress output messages except for errors.")
     parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
@@ -157,7 +183,7 @@ def main():
     if args.create:
         if not create_project_directory(args.project_dir):
             sys.exit(1)
-    elif args.import:
+    elif args.import_msi:
         print("Importing existing MSI is not implemented yet.", file=sys.stderr)
         sys.exit(1)
     else:
@@ -166,6 +192,9 @@ def main():
 
         # Read build-info.yaml
         config = read_build_info(args.project_dir)
+
+        # Populate 'files[]' with the contents of the 'payload' folder
+        populate_files_section(args.project_dir, config)
 
         # Generate WiX source files
         generate_wix_files(args.project_dir, config)
