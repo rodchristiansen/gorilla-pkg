@@ -182,9 +182,10 @@ def create_project_directory(project_dir):
             "name": "MyApp",
             "version": "1.0.0",
             "manufacturer": "MyCompany",
-            "upgrade_code": "com.domain.winadmins.package_name",
-            "postinstall_action": "none"
-        }
+            "upgrade_code": "com.domain.winadmins.package_name"
+        },
+        "install_path": "C:\\Program Files\\MyApp",
+        "postinstall_action": "none"
     }
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
         yaml.dump(default_build_info, file, default_flow_style=False)
