@@ -13,10 +13,9 @@ DEFAULT_WIX_BIN_PATH = r"C:\Program Files\WiX Toolset v5.0\bin"
 
 # Function to check if WiX Toolset is installed
 def check_wix_toolset(wix_path):
-    candle_path = Path(wix_path) / "candle.exe"
-    light_path = Path(wix_path) / "light.exe"
+    wix_exe_path = Path(wix_path) / "wix.exe"
     
-    if not candle_path.exists() or not light_path.exists():
+    if not wix_exe_path.exists():
         print("Error: WiX Toolset is not installed or not found in the expected location.")
         print("Please ensure that WiX Toolset is installed and the path is correctly set.")
         sys.exit(1)
@@ -170,10 +169,10 @@ def build_msi(project_dir, wix_path, output_dir, quiet):
     for wxs_file in src_dir.glob("*.wxs"):
         wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
         wixobj_files.append(str(wixobj_file))
-        run_command(f'"{wix_path}\\candle.exe" -out {wixobj_file} {wxs_file}', quiet)
+        run_command(f'"{wix_path}\\wix.exe" build {wxs_file} -o {wixobj_file}', quiet)
     
     msi_file = output_dir / "MyInstaller.msi"
-    run_command(f'"{wix_path}\\light.exe" -out {msi_file} {" ".join(wixobj_files)}', quiet)
+    run_command(f'"{wix_path}\\wix.exe" link {" ".join(wixobj_files)} -o {msi_file}', quiet)
 
 # Function to create a new project directory
 def create_project_directory(project_dir):
