@@ -168,19 +168,26 @@ def build_msi(project_dir, wix_path, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
+    wix_exe = f'"{wix_path}\\wix.exe"'
     wixobj_files = []
+
+    # Use bind paths if your files are not directly next to your wxs files.
+    bind_path_option = f"-b {project_dir}"
+
     for wxs_file in src_dir.glob("*.wxs"):
         wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
         wixobj_files.append(str(wixobj_file))
-        success, output = run_command(f'"{wix_path}\\wix.exe" -v build {wxs_file} -o {wixobj_file}', verbose=True)
+        command = f"{wix_exe} build {wxs_file} {bind_path_option} -out {wixobj_file}"
+        success, output = run_command(command)
         if not success:
-            log(f"Failed to build {wxs_file.name}, aborting MSI creation.", error=True)
-            return 
+            log(f"Failed to build {wxs_file.name}, aborting MSI creation. Details: {output}", error=True)
+            return
     
     msi_file = output_dir / "MyInstaller.msi"
-    success, output = run_command(f'"{wix_path}\\wix.exe" link {" ".join(wixobj_files)} -o {msi_file}')
+    command = f"{wix_exe} build {' '.join(wixobj_files)} -out {msi_file}"
+    success, output = run_command(command)
     if not success:
-        log("Failed to link object files into an MSI package.", error=True)
+        log(f"Failed to link object files into an MSI package. Details: {output}", error=True)
         return
 
     log("MSI package created successfully.")
