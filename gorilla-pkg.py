@@ -93,6 +93,7 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
+    # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
     # Generate Product.wxs content
@@ -145,7 +146,6 @@ def generate_wix_files(project_dir, config):
         (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
 
     log("WiX source files generated successfully.")
-
     
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
@@ -215,13 +215,13 @@ def verify_wxs_files(project_dir):
     try:
         with open(product_wxs_path, 'r') as file:
             content = file.read()
-            necessary_tags = ["<Product", "<Directory", "<Feature"]
+            necessary_tags = ["<Product", "<Directory", "<ComponentRef>"]
             missing_tags = [tag for tag in necessary_tags if tag not in content]
             if missing_tags:
                 log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
                 return False
             
-            # Additional specific structure checks can be added here
+            # Additional specific structure checks
             if "<DirectoryRef" not in content or "<ComponentRef" not in content:
                 log("Product.wxs appears to be missing necessary directory or component references.", error=True)
                 return False
@@ -313,9 +313,15 @@ def main():
         # Generate WiX source files based on payload and scripts
         generate_wix_files(args.project_dir, config)
 
+        # Verify the generated WiX source files before building the MSI
+        if not verify_wxs_files(args.project_dir):
+            log("Verification of WiX source files failed, aborting MSI creation.", error=True)
+            sys.exit(1)
+
         # Build the MSI package
         build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
+
 
 if __name__ == '__main__':
     main()
