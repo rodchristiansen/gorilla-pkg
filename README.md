@@ -93,7 +93,7 @@ MsiProject/
 └── build-info.yaml
 ```
 
-- **`build-info.yaml`**: Configuration file that specifies the installation parameters, such as the product name, version, and the files to include.
+- **`build-info.yaml`**: Configuration file that specifies the installation parameters, such as the product name, version, and the upgrade code.
 - **`payload/`**: Directory containing the files to be included in the `.msi` package.
 - **`scripts/`**: Directory containing `preinstall.bat` and `postinstall.bat` scripts to be executed before and after the installation process.
 
@@ -106,18 +106,20 @@ product:
   name: MyApp
   version: 1.0.0
   manufacturer: MyCompany
-  upgrade_code: YOUR-GUID-HERE
-files:
-  - source: "payload/file1.exe"
-    destination: "[INSTALLFOLDER]file1.exe"
-    component_id: "File1ExeComponent"
-  - source: "payload/file2.dll"
-    destination: "[INSTALLFOLDER]file2.dll"
-    component_id: "File2DllComponent"
-actions:
-  preinstall: "scripts/preinstall.bat"
-  postinstall: "scripts/postinstall.bat"
+  upgrade_code: com.domain.winadmins.myapp
 ```
+
+### Smart Handling of Files and Actions
+
+`gorilla-pkg` is designed to be smart enough to handle your project structure dynamically:
+
+- **Files Detection**: You no longer need to manually list files in the `build-info.yaml` file. The script will automatically detect all files in the `payload` directory and include them in the package.
+  
+- **Actions Detection**: Similarly, `preinstall` and `postinstall` scripts in the `scripts` directory are automatically detected and included if they exist. If no scripts are found, the package will still be created without any actions.
+
+### Payload-Free Packages
+
+WiX allows the creation of payload-free packages, which means you can have an `.msi` installer that only runs scripts without installing any files. If the `payload` directory is empty or missing, but scripts are present, the package will still be built.
 
 ### Building the `.msi` Package
 
@@ -136,8 +138,9 @@ gorillapkg MyMsiProject/
 This command will:
 
 1. Verify that the WiX Toolset is installed and accessible.
-2. Generate the necessary WiX source files in the `src/` directory of your project.
-3. Compile these files into an `.msi` package located in the `output/` directory within your project.
+2. Automatically detect files in the `payload` directory and scripts in the `scripts` directory.
+3. Generate the necessary WiX source files in the `src/` directory of your project.
+4. Compile these files into an `.msi` package located in the `output/` directory within your project.
 
 ### Error Handling
 
