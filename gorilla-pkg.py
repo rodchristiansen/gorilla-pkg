@@ -224,41 +224,32 @@ def verify_wxs_files(project_dir):
 
 # Main function with command-line arguments
 def main():
-    parser = argparse.ArgumentParser(description="Build MSI packages using WiX Toolset.")
-    parser.add_argument('project_dir', help="The directory to build or operate on.")
+    parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
+    parser.add_argument('project_dir', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
-    parser.add_argument('--output', default='output', metavar='DIRECTORY', help="Specify a different output directory for the MSI package.")
-    parser.add_argument('--wix-path', default=DEFAULT_WIX_BIN_PATH, metavar='WIX_DIRECTORY', help="Specify the WiX Toolset installation path.")
+    parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.", default='output')
+    parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
     
     args = parser.parse_args()
 
     if args.create:
-        if create_project_directory(args.project_dir):
-            log(f"Project directory created at {args.project_dir}")
-        else:
+        if not create_project_directory(args.project_dir):
             log("Failed to create a new project directory.", error=True)
             sys.exit(1)
+        log(f"Project directory created at {args.project_dir}")
     else:
-        if not check_wix_toolset(args.wix_path):
-            sys.exit(1)
+        # Check if WiX Toolset is installed
+        check_wix_toolset(args.wix_path)
 
+        # Read build-info.yaml
         config = read_build_info(args.project_dir)
-        if not config:
-            log("Failed to read or parse the build configuration.", error=True)
-            sys.exit(1)
 
-        if not generate_wix_files(args.project_dir, config):
-            log("Failed to generate WiX source files.", error=True)
-            sys.exit(1)
+        # Generate WiX source files based on payload and scripts
+        generate_wix_files(args.project_dir, config)
 
-        if not build_msi(args.project_dir, args.wix_path, args.output):
-            log("Failed to build the MSI package.", error=True)
-            sys.exit(1)
-
-        log("MSI package creation process completed successfully.")
-
-if __name__ == '__main__':
-    main()
+        # Build the MSI package
+        build_msi(args.project_dir, args.wix_path, args.output)
+        log("MSI package creation process completed.")
 
 if __name__ == '__main__':
     main()
