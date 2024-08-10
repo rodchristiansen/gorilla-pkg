@@ -79,9 +79,11 @@ def generate_wix_files(project_dir, config):
     src_dir = Path(project_dir) / "src"
     src_dir.mkdir(exist_ok=True)
     
-    # Ensure the <Wix> element is the root for all generated .wxs files
+    # Updated namespace for WiX v5.0
+    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    
     product_wxs_content = f"""
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="{namespace}">
     <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
         <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
@@ -100,7 +102,7 @@ def generate_wix_files(project_dir, config):
     (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
 
     directory_wxs_content = f"""
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="{namespace}">
     <Fragment>
         <DirectoryRef Id="INSTALLFOLDER">
             {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
@@ -111,22 +113,24 @@ def generate_wix_files(project_dir, config):
     (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
 
     if actions or postinstall_action in ['logout', 'restart']:
-        custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action)
+        custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action, namespace)
         (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
     
 def generate_install_execute_sequence(actions, postinstall_action):
-    sequence = ""
+    sequence_parts = []
     if 'preinstall' in actions:
-        sequence += f'<Custom Action="PreInstallAction" Before="InstallInitialize">NOT Installed</Custom>'
+        sequence_parts.append('<Custom Action="PreInstallAction" Before="InstallInitialize">NOT Installed</Custom>')
     if 'postinstall' in actions:
-        sequence += f'<Custom Action="PostInstallAction" After="InstallFinalize">Installed</Custom>'
+        sequence_parts.append('<Custom Action="PostInstallAction" After="InstallFinalize">Installed</Custom>')
     if postinstall_action == 'logout':
-        sequence += '<Custom Action="ForceLogout" After="InstallFinalize">Installed</Custom>'
+        sequence_parts.append('<Custom Action="ForceLogout" After="InstallFinalize">Installed</Custom>')
     if postinstall_action == 'restart':
-        sequence += '<Custom Action="ForceRestart" After="InstallFinalize">Installed</Custom>'
-    return sequence
+        sequence_parts.append('<Custom Action="ForceRestart" After="InstallFinalize">Installed</Custom>')
+    
+    return "\n      ".join(sequence_parts)
 
-def generate_custom_actions_wxs(actions, postinstall_action):
+
+def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     custom_actions = ""
     if 'preinstall' in actions:
         custom_actions += f'<CustomAction Id="PreInstallAction" FileKey="PreInstallScript" ExeCommand="" Return="ignore" />'
@@ -137,7 +141,7 @@ def generate_custom_actions_wxs(actions, postinstall_action):
     if postinstall_action == 'restart':
         custom_actions += '<CustomAction Id="ForceRestart" ExeCommand="shutdown.exe /r /f /t 00" Return="ignore" Directory="SystemFolder" />'
     return f"""
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="{namespace}">
     <Fragment>
         <Component Id="CustomActionsComponent" Guid="*">
             {custom_actions}
