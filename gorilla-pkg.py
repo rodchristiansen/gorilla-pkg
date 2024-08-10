@@ -30,25 +30,19 @@ def run_command(command, quiet=False):
     if not quiet:
         print(result.stdout)
 
-# Function to read YAML configuration and generate a ProductCode
+# Function to read YAML configuration
 def read_build_info(project_dir):
     build_info_path = Path(project_dir) / BUILD_INFO_FILE
     with open(build_info_path, 'r') as file:
-        config = yaml.safe_load(file)
-    
-    # Generate a new ProductCode for each build
-    config['product']['product_code'] = str(uuid.uuid4())
-    
-    return config
+        return yaml.safe_load(file)
 
-# Function to populate the 'files[]' section with contents from the 'payload' folder
-def populate_files_section(project_dir, config):
+# Function to dynamically populate files section based on payload directory contents
+def get_files_from_payload(project_dir):
     payload_dir = Path(project_dir) / "payload"
     files_list = []
     
     if not payload_dir.exists():
-        print(f"Error: Payload directory {payload_dir} does not exist.")
-        sys.exit(1)
+        print(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.")
 
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
@@ -60,15 +54,35 @@ def populate_files_section(project_dir, config):
             }
             files_list.append(file_entry)
     
-    # Update the config with the new files list
-    config['files'] = files_list
+    return files_list
 
-    # Write the updated config back to the YAML file
-    with open(Path(project_dir) / BUILD_INFO_FILE, 'w') as file:
-        yaml.dump(config, file, default_flow_style=False)
+# Function to dynamically detect and include preinstall and postinstall scripts
+def get_scripts(project_dir):
+    scripts_dir = Path(project_dir) / "scripts"
+    
+    preinstall_script = scripts_dir / "preinstall.bat"
+    postinstall_script = scripts_dir / "postinstall.bat"
+    
+    actions = {}
+
+    if preinstall_script.exists():
+        actions['preinstall'] = str(preinstall_script)
+    else:
+        print(f"Warning: Preinstall script not found at {preinstall_script}")
+
+    if postinstall_script.exists():
+        actions['postinstall'] = str(postinstall_script)
+    else:
+        print(f"Warning: Postinstall script not found at {postinstall_script}")
+
+    return actions
 
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
+    # Dynamically get files and scripts
+    files = get_files_from_payload(project_dir)
+    actions = get_scripts(project_dir)
+
     # Create the src directory if it doesn't exist
     src_dir = Path(project_dir) / "src"
     src_dir.mkdir(exist_ok=True)
@@ -76,7 +90,7 @@ def generate_wix_files(project_dir, config):
     # Generate Product.wxs
     product_wxs_content = f"""
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="{config['product']['product_code']}" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+  <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
@@ -85,13 +99,13 @@ def generate_wix_files(project_dir, config):
       </Directory>
     </Directory>
     <Feature Id="MainFeature" Title="Main Feature" Level="1">
-      {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in config['files']])}
+      {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
     </Feature>
-    <CustomActionRef Id="PreInstallAction" />
-    <CustomActionRef Id="PostInstallAction" />
+    {"<CustomActionRef Id=\"PreInstallAction\" />" if 'preinstall' in actions else ""}
+    {"<CustomActionRef Id=\"PostInstallAction\" />" if 'postinstall' in actions else ""}
     <InstallExecuteSequence>
-      <Custom Action="PreInstallAction" Before="InstallInitialize">NOT Installed</Custom>
-      <Custom Action="PostInstallAction" After="InstallFinalize">Installed</Custom>
+      {"<Custom Action=\"PreInstallAction\" Before=\"InstallInitialize\">NOT Installed</Custom>" if 'preinstall' in actions else ""}
+      {"<Custom Action=\"PostInstallAction\" After=\"InstallFinalize\">Installed</Custom>" if 'postinstall' in actions else ""}
     </InstallExecuteSequence>
   </Product>
 </Wix>
@@ -99,38 +113,41 @@ def generate_wix_files(project_dir, config):
     (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
 
     # Generate DirectoryStructure.wxs
-    directory_wxs_content = f"""
+    if files:
+        directory_wxs_content = f"""
 <Fragment>
   <DirectoryRef Id="INSTALLFOLDER">
-    {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in config['files']])}
+    {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
   </DirectoryRef>
 </Fragment>
-    """
-    (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
+        """
+        (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
 
     # Generate CustomActions.wxs
-    custom_actions_wxs_content = f"""
+    if actions:
+        custom_actions_wxs_content = f"""
 <Fragment>
-  <CustomAction Id="PreInstallAction" FileKey="PreInstallScript" ExeCommand="" Return="ignore" />
-  <CustomAction Id="PostInstallAction" FileKey="PostInstallScript" ExeCommand="" Return="ignore" />
+  {"<CustomAction Id=\"PreInstallAction\" FileKey=\"PreInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'preinstall' in actions else ""}
+  {"<CustomAction Id=\"PostInstallAction\" FileKey=\"PostInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'postinstall' in actions else ""}
   <Component Id="CustomActionsComponent" Guid="*">
-    <File Id="PreInstallScript" Source="{config['actions']['preinstall']}" KeyPath="yes" />
-    <File Id="PostInstallScript" Source="{config['actions']['postinstall']}" KeyPath="yes" />
+    {"<File Id=\"PreInstallScript\" Source=\"{actions['preinstall']}\" KeyPath=\"yes\" />" if 'preinstall' in actions else ""}
+    {"<File Id=\"PostInstallScript\" Source=\"{actions['postinstall']}\" KeyPath=\"yes\" />" if 'postinstall' in actions else ""}
   </Component>
 </Fragment>
-    """
-    (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
+        """
+        (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
 
     # Generate Components.wxs
-    components_wxs_content = f"""
+    if files or actions:
+        components_wxs_content = f"""
 <Fragment>
   <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-    {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in config['files']])}
-    <ComponentRef Id="CustomActionsComponent" />
+    {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+    {"<ComponentRef Id=\"CustomActionsComponent\" />" if actions else ""}
   </ComponentGroup>
 </Fragment>
-    """
-    (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
+        """
+        (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
 
 # Function to compile and link WiX files into an MSI
 def build_msi(project_dir, wix_path, output_dir, quiet):
@@ -162,11 +179,6 @@ def create_project_directory(project_dir):
             "version": "1.0.0",
             "manufacturer": "MyCompany",
             "upgrade_code": "YOUR-GUID-HERE"
-        },
-        "files": [],
-        "actions": {
-            "preinstall": "scripts/preinstall.bat",
-            "postinstall": "scripts/postinstall.bat"
         }
     }
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
@@ -199,10 +211,7 @@ def main():
         # Read build-info.yaml
         config = read_build_info(args.project_dir)
 
-        # Populate 'files[]' with the contents of the 'payload' folder
-        populate_files_section(args.project_dir, config)
-
-        # Generate WiX source files
+        # Generate WiX source files based on payload and scripts
         generate_wix_files(args.project_dir, config)
 
         # Build the MSI package
