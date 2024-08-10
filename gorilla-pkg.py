@@ -46,7 +46,6 @@ def get_files_from_payload(project_dir):
 
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
-            # Create a file entry
             file_entry = {
                 "source": str(file_path).replace("\\", "/"),
                 "destination": f"[INSTALLFOLDER]{file_path.relative_to(payload_dir)}",
@@ -83,8 +82,7 @@ def generate_wix_files(project_dir, config):
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
 
-    # Determine the install path
-    install_path = config['product'].get('install_path', f"C:\\Program Files\\{config['product']['name']}")
+    postinstall_action = config['product'].get('postinstall_action', 'none').lower()
 
     # Create the src directory if it doesn't exist
     src_dir = Path(project_dir) / "src"
@@ -98,7 +96,7 @@ def generate_wix_files(project_dir, config):
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLFOLDER" Name="{install_path}" />
+        <Directory Id="INSTALLFOLDER" Name="{config['product']['name']}" />
       </Directory>
     </Directory>
     <Feature Id="MainFeature" Title="Main Feature" Level="1">
@@ -109,6 +107,8 @@ def generate_wix_files(project_dir, config):
     <InstallExecuteSequence>
       {"<Custom Action=\"PreInstallAction\" Before=\"InstallInitialize\">NOT Installed</Custom>" if 'preinstall' in actions else ""}
       {"<Custom Action=\"PostInstallAction\" After=\"InstallFinalize\">Installed</Custom>" if 'postinstall' in actions else ""}
+      {"<ScheduleReboot After=\"InstallFinalize\">NOT Installed</ScheduleReboot>" if postinstall_action == 'restart' else ""}
+      {"<Custom Action=\"ForceLogout\" After=\"InstallFinalize\">NOT Installed</Custom>" if postinstall_action == 'logout' else ""}
     </InstallExecuteSequence>
   </Product>
 </Wix>
@@ -127,11 +127,12 @@ def generate_wix_files(project_dir, config):
         (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
 
     # Generate CustomActions.wxs
-    if actions:
+    if actions or postinstall_action == 'logout':
         custom_actions_wxs_content = f"""
 <Fragment>
   {"<CustomAction Id=\"PreInstallAction\" FileKey=\"PreInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'preinstall' in actions else ""}
   {"<CustomAction Id=\"PostInstallAction\" FileKey=\"PostInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'postinstall' in actions else ""}
+  {"<CustomAction Id=\"ForceLogout\" ExeCommand=\"shutdown.exe /l /f\" Return=\"ignore\" Directory=\"SystemFolder\" />" if postinstall_action == 'logout' else ""}
   <Component Id="CustomActionsComponent" Guid="*">
     {"<File Id=\"PreInstallScript\" Source=\"{actions['preinstall']}\" KeyPath=\"yes\" />" if 'preinstall' in actions else ""}
     {"<File Id=\"PostInstallScript\" Source=\"{actions['postinstall']}\" KeyPath=\"yes\" />" if 'postinstall' in actions else ""}
@@ -146,7 +147,7 @@ def generate_wix_files(project_dir, config):
 <Fragment>
   <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
     {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
-    {"<ComponentRef Id=\"CustomActionsComponent\" />" if actions else ""}
+    {"<ComponentRef Id=\"CustomActionsComponent\" />" if actions or postinstall_action == 'logout' else ""}
   </ComponentGroup>
 </Fragment>
         """
@@ -182,7 +183,7 @@ def create_project_directory(project_dir):
             "version": "1.0.0",
             "manufacturer": "MyCompany",
             "upgrade_code": "com.domain.winadmins.package_name",
-            "install_path": f"C:\\Program Files\\MyApp"
+            "postinstall_action": "none"
         }
     }
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
