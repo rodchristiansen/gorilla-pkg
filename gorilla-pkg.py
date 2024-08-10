@@ -11,83 +11,81 @@ from pathlib import Path
 BUILD_INFO_FILE = "build-info.yaml"
 DEFAULT_WIX_BIN_PATH = r"C:\Program Files\WiX Toolset v5.0\bin"
 
+# Enhanced logging function for debugging
+def log(message, error=False):
+    if error:
+        print(f"ERROR: {message}", file=sys.stderr)
+    else:
+        print(f"DEBUG: {message}")
+
 # Function to check if WiX Toolset is installed
 def check_wix_toolset(wix_path):
     wix_exe_path = Path(wix_path) / "wix.exe"
+    log(f"Checking for WiX Toolset at {wix_exe_path}")
     
     if not wix_exe_path.exists():
-        print("Error: WiX Toolset is not installed or not found in the expected location.")
-        print("Please ensure that WiX Toolset is installed and the path is correctly set.")
+        log("WiX Toolset is not installed or not found in the expected location.", error=True)
         sys.exit(1)
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False):
+    log(f"Executing command: {command}")
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"Error: {result.stderr}")
+        log(f"Command failed with error: {result.stderr}", error=True)
         sys.exit(result.returncode)
     if not quiet:
-        print(result.stdout)
+        log(result.stdout)
 
 # Function to read YAML configuration
 def read_build_info(project_dir):
     build_info_path = Path(project_dir) / BUILD_INFO_FILE
+    log(f"Reading build info from {build_info_path}")
     with open(build_info_path, 'r') as file:
         return yaml.safe_load(file)
 
 # Function to dynamically populate files section based on payload directory contents
 def get_files_from_payload(project_dir):
     payload_dir = Path(project_dir) / "payload"
+    log(f"Getting files from payload directory {payload_dir}")
     files_list = []
     
     if not payload_dir.exists():
-        print(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.")
+        log(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.", error=True)
 
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
-            # Create a file entry
             file_entry = {
                 "source": str(file_path).replace("\\", "/"),
                 "destination": f"[INSTALLFOLDER]{file_path.relative_to(payload_dir)}",
                 "component_id": f"Component_{file_path.stem}"
             }
             files_list.append(file_entry)
+            log(f"Added file: {file_entry['source']} to installation package")
     
     return files_list
 
 # Function to dynamically detect and include preinstall and postinstall scripts
 def get_scripts(project_dir):
     scripts_dir = Path(project_dir) / "scripts"
-    
-    preinstall_script_bat = scripts_dir / "preinstall.bat"
-    postinstall_script_bat = scripts_dir / "postinstall.bat"
-    
-    preinstall_script_ps1 = scripts_dir / "preinstall.ps1"
-    postinstall_script_ps1 = scripts_dir / "postinstall.ps1"
-    
     actions = {}
+    log(f"Checking for scripts in {scripts_dir}")
 
-    if preinstall_script_bat.exists():
-        actions['preinstall'] = str(preinstall_script_bat)
-    elif preinstall_script_ps1.exists():
-        actions['preinstall'] = str(preinstall_script_ps1)
-
-    if postinstall_script_bat.exists():
-        actions['postinstall'] = str(postinstall_script_bat)
-    elif postinstall_script_ps1.exists():
-        actions['postinstall'] = str(postinstall_script_ps1)
+    for script_type in ['preinstall', 'postinstall']:
+        for ext in ['.bat', '.ps1']:
+            script_path = scripts_dir / f"{script_type}{ext}"
+            if script_path.exists():
+                actions[script_type] = str(script_path)
+                log(f"Found {script_type} script: {script_path}")
 
     return actions
 
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
-    # Dynamically get files and scripts
+    log("Generating WiX source files...")
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
-
     postinstall_action = config.get("postinstall_action", "none")
-
-    # Create the src directory if it doesn't exist
     src_dir = Path(project_dir) / "src"
     src_dir.mkdir(exist_ok=True)
     
