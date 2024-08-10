@@ -211,9 +211,7 @@ def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
     parser.add_argument('project_dir', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
-    parser.add_argument('--import_msi', metavar='MSI_FILE', help="Import an existing MSI package as a project.")
     parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.", default='output')
-    parser.add_argument('--quiet', action='store_true', help="Suppress output messages except for errors.")
     parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
     
     args = parser.parse_args()
@@ -221,9 +219,6 @@ def main():
     if args.create:
         if not create_project_directory(args.project_dir):
             sys.exit(1)
-    elif args.import_msi:
-        print("Importing existing MSI is not implemented yet.", file=sys.stderr)
-        sys.exit(1)
     else:
         # Check if WiX Toolset is installed
         check_wix_toolset(args.wix_path)
@@ -235,7 +230,7 @@ def main():
         generate_wix_files(args.project_dir, config)
 
         # Build the MSI package
-        build_msi(args.project_dir, args.wix_path, args.output, args.quiet)
+        build_msi(args.project_dir, args.wix_path, args.output)
 
         print("MSI package created successfully.")
 
