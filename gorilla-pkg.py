@@ -8,7 +8,7 @@ from pathlib import Path
 
 # Define constants
 BUILD_INFO_FILE = "build-info.yaml"
-DEFAULT_WIX_BIN_PATH = r"C:\Program Files (x86)\WiX Toolset v3.11\bin"
+DEFAULT_WIX_BIN_PATH = r"C:\Program Files\WiX Toolset v5.0\bin"
 
 # Function to check if WiX Toolset is installed
 def check_wix_toolset(wix_path):
