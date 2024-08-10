@@ -79,73 +79,74 @@ def generate_wix_files(project_dir, config):
     src_dir = Path(project_dir) / "src"
     src_dir.mkdir(exist_ok=True)
     
-    # Generate Product.wxs
+    # Ensure the <Wix> element is the root for all generated .wxs files
     product_wxs_content = f"""
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
-    <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}" />
-      </Directory>
-    </Directory>
-    <Feature Id="MainFeature" Title="Main Feature" Level="1">
-      {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
-    </Feature>
-    {"<CustomActionRef Id=\"PreInstallAction\" />" if 'preinstall' in actions else ""}
-    {"<CustomActionRef Id=\"PostInstallAction\" />" if 'postinstall' in actions else ""}
-    {"<CustomActionRef Id=\"ForceLogout\" />" if postinstall_action == 'logout' else ""}
-    {"<CustomActionRef Id=\"ForceRestart\" />" if postinstall_action == 'restart' else ""}
-    <InstallExecuteSequence>
-      {"<Custom Action=\"PreInstallAction\" Before=\"InstallInitialize\">NOT Installed</Custom>" if 'preinstall' in actions else ""}
-      {"<Custom Action=\"PostInstallAction\" After=\"InstallFinalize\">Installed</Custom>" if 'postinstall' in actions else ""}
-      {"<Custom Action=\"ForceLogout\" After=\"InstallFinalize\">Installed</Custom>" if postinstall_action == 'logout' else ""}
-      {"<Custom Action=\"ForceRestart\" After=\"InstallFinalize\">Installed</Custom>" if postinstall_action == 'restart' else ""}
-    </InstallExecuteSequence>
-  </Product>
+    <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+        <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+        <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}" />
+            </Directory>
+        </Directory>
+        <Feature Id="MainFeature" Title="Main Feature" Level="1">
+            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+        </Feature>
+        {generate_install_execute_sequence(actions, postinstall_action)}
+    </Product>
 </Wix>
     """
     (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
 
-    # Generate DirectoryStructure.wxs
-    if files:
-        directory_wxs_content = f"""
-<Fragment>
-  <DirectoryRef Id="INSTALLFOLDER">
-    {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
-  </DirectoryRef>
-</Fragment>
-        """
-        (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
+    directory_wxs_content = f"""
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="INSTALLFOLDER">
+            {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
+        </DirectoryRef>
+    </Fragment>
+</Wix>
+    """
+    (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
 
-    # Generate CustomActions.wxs
     if actions or postinstall_action in ['logout', 'restart']:
-        custom_actions_wxs_content = f"""
-<Fragment>
-  {"<CustomAction Id=\"PreInstallAction\" FileKey=\"PreInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'preinstall' in actions else ""}
-  {"<CustomAction Id=\"PostInstallAction\" FileKey=\"PostInstallScript\" ExeCommand=\"\" Return=\"ignore\" />" if 'postinstall' in actions else ""}
-  {"<CustomAction Id=\"ForceLogout\" ExeCommand=\"shutdown.exe /l /f\" Return=\"ignore\" Directory=\"SystemFolder\" />" if postinstall_action == 'logout' else ""}
-  {"<CustomAction Id=\"ForceRestart\" ExeCommand=\"shutdown.exe /r /f /t 00\" Return=\"ignore\" Directory=\"SystemFolder\" />" if postinstall_action == 'restart' else ""}
-  <Component Id="CustomActionsComponent" Guid="*">
-    {"<File Id=\"PreInstallScript\" Source=\"{actions['preinstall']}\" KeyPath=\"yes\" />" if 'preinstall' in actions else ""}
-    {"<File Id=\"PostInstallScript\" Source=\"{actions['postinstall']}\" KeyPath=\"yes\" />" if 'postinstall' in actions else ""}
-  </Component>
-</Fragment>
-        """
+        custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action)
         (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
+    
+def generate_install_execute_sequence(actions, postinstall_action):
+    sequence = ""
+    if 'preinstall' in actions:
+        sequence += f'<Custom Action="PreInstallAction" Before="InstallInitialize">NOT Installed</Custom>'
+    if 'postinstall' in actions:
+        sequence += f'<Custom Action="PostInstallAction" After="InstallFinalize">Installed</Custom>'
+    if postinstall_action == 'logout':
+        sequence += '<Custom Action="ForceLogout" After="InstallFinalize">Installed</Custom>'
+    if postinstall_action == 'restart':
+        sequence += '<Custom Action="ForceRestart" After="InstallFinalize">Installed</Custom>'
+    return sequence
 
-    # Generate Components.wxs
-    if files or actions:
-        components_wxs_content = f"""
-<Fragment>
-  <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-    {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
-    {"<ComponentRef Id=\"CustomActionsComponent\" />" if actions else ""}
-  </ComponentGroup>
-</Fragment>
-        """
-        (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
+def generate_custom_actions_wxs(actions, postinstall_action):
+    custom_actions = ""
+    if 'preinstall' in actions:
+        custom_actions += f'<CustomAction Id="PreInstallAction" FileKey="PreInstallScript" ExeCommand="" Return="ignore" />'
+    if 'postinstall' in actions:
+        custom_actions += f'<CustomAction Id="PostInstallAction" FileKey="PostInstallScript" ExeCommand="" Return="ignore" />'
+    if postinstall_action == 'logout':
+        custom_actions += '<CustomAction Id="ForceLogout" ExeCommand="shutdown.exe /l /f" Return="ignore" Directory="SystemFolder" />'
+    if postinstall_action == 'restart':
+        custom_actions += '<CustomAction Id="ForceRestart" ExeCommand="shutdown.exe /r /f /t 00" Return="ignore" Directory="SystemFolder" />'
+    return f"""
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <Component Id="CustomActionsComponent" Guid="*">
+            {custom_actions}
+            <File Id="PreInstallScript" Source="{actions['preinstall']}" KeyPath="yes" />
+            <File Id="PostInstallScript" Source="{actions['postinstall']}" KeyPath="yes" />
+        </Component>
+    </Fragment>
+</Wix>
+    """
         
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
@@ -168,26 +169,22 @@ def build_msi(project_dir, wix_path, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
-    wix_exe = f'"{wix_path}\\wix.exe"'
+    wix_exe = Path(wix_path) / "wix.exe"
     wixobj_files = []
-
-    # Use bind paths if your files are not directly next to your wxs files.
-    bind_path_option = f"-b {project_dir}"
 
     for wxs_file in src_dir.glob("*.wxs"):
         wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
-        wixobj_files.append(str(wixobj_file))
-        command = f"{wix_exe} build {wxs_file} {bind_path_option} -out {wixobj_file}"
+        command = f'"{wix_exe}" build "{wxs_file}" -out "{wixobj_file}"'
         success, output = run_command(command)
         if not success:
-            log(f"Failed to build {wxs_file.name}, aborting MSI creation. Details: {output}", error=True)
+            log(f"Failed to build {wxs_file.name}, aborting MSI creation.", error=True)
             return
     
     msi_file = output_dir / "MyInstaller.msi"
-    command = f"{wix_exe} build {' '.join(wixobj_files)} -out {msi_file}"
+    command = f'"{wix_exe}" build {" ".join(map(str, wixobj_files))} -out "{msi_file}"'
     success, output = run_command(command)
     if not success:
-        log(f"Failed to link object files into an MSI package. Details: {output}", error=True)
+        log("Failed to link object files into an MSI package.", error=True)
         return
 
     log("MSI package created successfully.")
@@ -253,9 +250,6 @@ def main():
         # Build the MSI package
         build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
-
-if __name__ == '__main__':
-    main()
 
 if __name__ == '__main__':
     main()
