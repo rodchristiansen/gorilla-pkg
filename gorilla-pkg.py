@@ -4,6 +4,7 @@ import subprocess
 import sys
 import yaml
 import argparse
+import uuid
 from pathlib import Path
 
 # Define constants
@@ -29,11 +30,16 @@ def run_command(command, quiet=False):
     if not quiet:
         print(result.stdout)
 
-# Function to read YAML configuration
+# Function to read YAML configuration and generate a ProductCode
 def read_build_info(project_dir):
     build_info_path = Path(project_dir) / BUILD_INFO_FILE
     with open(build_info_path, 'r') as file:
-        return yaml.safe_load(file)
+        config = yaml.safe_load(file)
+    
+    # Generate a new ProductCode for each build
+    config['product']['product_code'] = str(uuid.uuid4())
+    
+    return config
 
 # Function to populate the 'files[]' section with contents from the 'payload' folder
 def populate_files_section(project_dir, config):
@@ -70,7 +76,7 @@ def generate_wix_files(project_dir, config):
     # Generate Product.wxs
     product_wxs_content = f"""
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+  <Product Id="{config['product']['product_code']}" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
