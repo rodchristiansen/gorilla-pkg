@@ -27,17 +27,6 @@ def check_wix_toolset(wix_path):
         log("WiX Toolset is not installed or not found in the expected location.", error=True)
         sys.exit(1)
 
-# Function to run a subprocess and check for errors
-def run_command(command, quiet=False):
-    log(f"Executing command: {command}")
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        log(f"Command failed with return code {result.returncode}: {result.stderr}", error=True)
-        return False, result.stderr
-    if not quiet:
-        log(result.stdout)
-    return True, result.stdout
-
 # Function to read YAML configuration
 def read_build_info(project_dir):
     build_info_path = Path(project_dir) / BUILD_INFO_FILE
@@ -157,6 +146,21 @@ def generate_wix_files(project_dir, config):
 </Fragment>
         """
         (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
+        
+# Function to run a subprocess and check for errors
+def run_command(command, quiet=False, verbose=False):
+    if verbose:
+        command += " -v"
+    log(f"Executing command: {command}")
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"Command failed with return code {result.returncode}: {result.stderr}", error=True)
+        if not quiet:
+            log(f"Output: {result.stdout}", error=True)
+        return False, result.stderr
+    if not quiet:
+        log(result.stdout)
+    return True, result.stdout
 
 # Function to compile and link WiX files into an MSI
 def build_msi(project_dir, wix_path, output_dir):
@@ -168,7 +172,7 @@ def build_msi(project_dir, wix_path, output_dir):
     for wxs_file in src_dir.glob("*.wxs"):
         wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
         wixobj_files.append(str(wixobj_file))
-        success, output = run_command(f'"{wix_path}\\wix.exe" build {wxs_file} -o {wixobj_file}')
+        success, output = run_command(f'"{wix_path}\\wix.exe" -v build {wxs_file} -o {wixobj_file}', verbose=True)
         if not success:
             log(f"Failed to build {wxs_file.name}, aborting MSI creation.", error=True)
             return 
