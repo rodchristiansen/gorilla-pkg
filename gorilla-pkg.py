@@ -32,8 +32,7 @@ def run_command(command, quiet=False):
     log(f"Executing command: {command}")
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
-        log(f"Command failed with return code {result.returncode}", error=True)
-        log(result.stderr, error=True)  # Always log errors
+        log(f"Command failed with return code {result.returncode}: {result.stderr}", error=True)
         return False, result.stderr
     if not quiet:
         log(result.stdout)
@@ -205,6 +204,15 @@ def create_project_directory(project_dir):
         yaml.dump(default_build_info, file, default_flow_style=False)
     print(f"Created new project directory at {project_dir}")
     return True
+    
+def verify_wxs_files(project_dir):
+    src_dir = Path(project_dir) / "src"
+    expected_files = {'Components.wxs', 'DirectoryStructure.wxs', 'Product.wxs'}
+    actual_files = {file.name for file in src_dir.glob('*.wxs')}
+    if expected_files != actual_files:
+        log(f"Missing or extra WXS files. Expected {expected_files}, found {actual_files}", error=True)
+        return False
+    return True
 
 # Main function with command-line arguments
 def main():
@@ -218,7 +226,9 @@ def main():
 
     if args.create:
         if not create_project_directory(args.project_dir):
+            log("Failed to create a new project directory.", error=True)
             sys.exit(1)
+        log(f"Project directory created at {args.project_dir}")
     else:
         # Check if WiX Toolset is installed
         check_wix_toolset(args.wix_path)
@@ -231,8 +241,10 @@ def main():
 
         # Build the MSI package
         build_msi(args.project_dir, args.wix_path, args.output)
+        log("MSI package creation process completed.")
 
-        print("MSI package created successfully.")
+if __name__ == '__main__':
+    main()
 
 if __name__ == '__main__':
     main()
