@@ -5,6 +5,7 @@ import sys
 import yaml
 import argparse
 import uuid
+import shutil
 from pathlib import Path
 
 # Define constants
@@ -33,6 +34,16 @@ def read_build_info(project_dir):
     log(f"Reading build info from {build_info_path}")
     with open(build_info_path, 'r') as file:
         return yaml.safe_load(file)
+
+def clean_src_folder(src_dir):
+    if src_dir.exists():
+        try:
+            shutil.rmtree(src_dir)
+            log(f"Cleaned up existing src directory: {src_dir}")
+        except Exception as e:
+            log(f"Failed to clean up src directory: {str(e)}", error=True)
+            sys.exit(1)
+    src_dir.mkdir(exist_ok=True)  # Recreate the src directory after cleanup
 
 # Function to dynamically populate files section based on payload directory contents
 def get_files_from_payload(project_dir):
@@ -73,15 +84,18 @@ def get_scripts(project_dir):
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
+    src_dir = Path(project_dir) / "src"
+    
+    # Clean up the src directory before generating new files
+    clean_src_folder(src_dir)
+    
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
-    src_dir = Path(project_dir) / "src"
-    src_dir.mkdir(exist_ok=True)
     
-    # Updated namespace for WiX v5.0
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
+    # Generate Product.wxs content
     product_wxs_content = f"""
 <Wix xmlns="{namespace}">
     <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
@@ -115,6 +129,9 @@ def generate_wix_files(project_dir, config):
     if actions or postinstall_action in ['logout', 'restart']:
         custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action, namespace)
         (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
+
+    log("WiX source files generated successfully.")
+
     
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
@@ -166,32 +183,72 @@ def run_command(command, quiet=False, verbose=False):
     if not quiet:
         log(result.stdout)
     return True, result.stdout
+    
+def verify_wxs_files(project_dir):
+    src_dir = Path(project_dir) / "src"
+    expected_files = {'Components.wxs', 'DirectoryStructure.wxs', 'Product.wxs'}
+    actual_files = {file.name for file in src_dir.glob('*.wxs')}
+    
+    # Check for file existence
+    if expected_files != actual_files:
+        missing_files = expected_files - actual_files
+        extra_files = actual_files - expected_files
+        log(f"Missing or unexpected WXS files. Missing: {missing_files}, Unexpected: {extra_files}", error=True)
+        return False
+
+    # Detailed content checks, especially for Product.wxs
+    product_wxs_path = src_dir / "Product.wxs"
+    try:
+        with open(product_wxs_path, 'r') as file:
+            content = file.read()
+            necessary_tags = ["<Product", "<Directory", "<Feature"]
+            missing_tags = [tag for tag in necessary_tags if tag not in content]
+            if missing_tags:
+                log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
+                return False
+            
+            # Additional specific structure checks can be added here
+            if "<DirectoryRef" not in content or "<ComponentRef" not in content:
+                log("Product.wxs appears to be missing necessary directory or component references.", error=True)
+                return False
+
+    except IOError as e:
+        log(f"Error reading {product_wxs_path}: {str(e)}", error=True)
+        return False
+
+    # All checks passed
+    log("WXS files verification passed.")
+    return True
 
 # Function to compile and link WiX files into an MSI
 def build_msi(project_dir, wix_path, output_dir):
+    if not verify_wxs_files(project_dir):
+        log("Verification of WiX source files failed, aborting MSI creation.", error=True)
+        return
+
     src_dir = Path(project_dir) / "src"
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
     wix_exe = Path(wix_path) / "wix.exe"
-    wixobj_files = []
-
-    for wxs_file in src_dir.glob("*.wxs"):
-        wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
-        command = f'"{wix_exe}" build "{wxs_file}" -out "{wixobj_file}"'
-        success, output = run_command(command)
-        if not success:
-            log(f"Failed to build {wxs_file.name}, aborting MSI creation.", error=True)
-            return
+    product_wix_file = src_dir / "Product.wxs"
+    product_wixobj_file = output_dir / "Product.wixobj"
     
-    msi_file = output_dir / "MyInstaller.msi"
-    command = f'"{wix_exe}" build {" ".join(map(str, wixobj_files))} -out "{msi_file}"'
+    command = f'"{wix_exe}" build "{product_wix_file}" -out "{product_wixobj_file}"'
     success, output = run_command(command)
+    if not success:
+        log(f"Failed to build {product_wix_file.name}, aborting MSI creation.", error=True)
+        return
+
+    msi_file = output_dir / "MyInstaller.msi"
+    link_command = f'"{wix_exe}" link "{product_wixobj_file}" -out "{msi_file}"'
+    success, output = run_command(link_command)
     if not success:
         log("Failed to link object files into an MSI package.", error=True)
         return
 
     log("MSI package created successfully.")
+
 
 # Function to create a new project directory
 def create_project_directory(project_dir):
@@ -215,15 +272,6 @@ def create_project_directory(project_dir):
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
         yaml.dump(default_build_info, file, default_flow_style=False)
     print(f"Created new project directory at {project_dir}")
-    return True
-    
-def verify_wxs_files(project_dir):
-    src_dir = Path(project_dir) / "src"
-    expected_files = {'Components.wxs', 'DirectoryStructure.wxs', 'Product.wxs'}
-    actual_files = {file.name for file in src_dir.glob('*.wxs')}
-    if expected_files != actual_files:
-        log(f"Missing or extra WXS files. Expected {expected_files}, found {actual_files}", error=True)
-        return False
     return True
 
 # Main function with command-line arguments
