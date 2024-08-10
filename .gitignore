@@ -1,0 +1,12 @@
+# Ignore the output and build directories
+output/
+build/
+dist/
+src/
+*.wixobj
+
+# Python specific ignores
+*.pyc
+__pycache__/
+
+.DS_Store
