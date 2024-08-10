@@ -32,10 +32,12 @@ def run_command(command, quiet=False):
     log(f"Executing command: {command}")
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
-        log(f"Command failed with error: {result.stderr}", error=True)
-        sys.exit(result.returncode)
+        log(f"Command failed with return code {result.returncode}", error=True)
+        log(result.stderr, error=True)  # Always log errors
+        return False, result.stderr
     if not quiet:
         log(result.stdout)
+    return True, result.stdout
 
 # Function to read YAML configuration
 def read_build_info(project_dir):
@@ -158,7 +160,7 @@ def generate_wix_files(project_dir, config):
         (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
 
 # Function to compile and link WiX files into an MSI
-def build_msi(project_dir, wix_path, output_dir, quiet):
+def build_msi(project_dir, wix_path, output_dir):
     src_dir = Path(project_dir) / "src"
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
@@ -167,10 +169,18 @@ def build_msi(project_dir, wix_path, output_dir, quiet):
     for wxs_file in src_dir.glob("*.wxs"):
         wixobj_file = output_dir / f"{wxs_file.stem}.wixobj"
         wixobj_files.append(str(wixobj_file))
-        run_command(f'"{wix_path}\\wix.exe" build {wxs_file} -o {wixobj_file}', quiet)
+        success, output = run_command(f'"{wix_path}\\wix.exe" build {wxs_file} -o {wixobj_file}')
+        if not success:
+            log(f"Failed to build {wxs_file.name}, aborting MSI creation.", error=True)
+            return 
     
     msi_file = output_dir / "MyInstaller.msi"
-    run_command(f'"{wix_path}\\wix.exe" link {" ".join(wixobj_files)} -o {msi_file}', quiet)
+    success, output = run_command(f'"{wix_path}\\wix.exe" link {" ".join(wixobj_files)} -o {msi_file}')
+    if not success:
+        log("Failed to link object files into an MSI package.", error=True)
+        return
+
+    log("MSI package created successfully.")
 
 # Function to create a new project directory
 def create_project_directory(project_dir):
