@@ -83,6 +83,9 @@ def generate_wix_files(project_dir, config):
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
 
+    # Determine the install path
+    install_path = config['product'].get('install_path', f"C:\\Program Files\\{config['product']['name']}")
+
     # Create the src directory if it doesn't exist
     src_dir = Path(project_dir) / "src"
     src_dir.mkdir(exist_ok=True)
@@ -95,7 +98,7 @@ def generate_wix_files(project_dir, config):
     <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLFOLDER" Name="{config['product']['name']}" />
+        <Directory Id="INSTALLFOLDER" Name="{install_path}" />
       </Directory>
     </Directory>
     <Feature Id="MainFeature" Title="Main Feature" Level="1">
@@ -178,7 +181,8 @@ def create_project_directory(project_dir):
             "name": "MyApp",
             "version": "1.0.0",
             "manufacturer": "MyCompany",
-            "upgrade_code": "YOUR-GUID-HERE"
+            "upgrade_code": "com.domain.winadmins.package_name",
+            "install_path": f"C:\\Program Files\\MyApp"
         }
     }
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
