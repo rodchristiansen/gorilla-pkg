@@ -1,155 +1,92 @@
-# gorilla-pkg
+# gorillapkg
 
 ## Introduction
 
-`gorilla-pkg` is a Windows tool for building `.msi` (Microsoft Installer) packages from a directory structure. It simplifies the creation of installers by automating the process using the WiX Toolset and a YAML configuration file.
+`gorillapkg` is a tool for building MSI packages in a consistent, repeatable manner from source files, scripts, and a YAML configuration file in a project directory.
 
-This tool is particularly useful for developers and system administrators who need to create custom Windows installers in a consistent, repeatable manner.
+While you can use `gorillapkg` to generate packages for various Windows environments, the packages `gorillapkg` builds are standard MSI installer packages usable wherever Windows MSI packages are supported.
 
-## Prerequisites
+Files, scripts, and metadata are stored in a way that is easy to track and manage using a version control system like git.
 
-### 1. Python 3.x
+### Features
 
-- **Download and Install**: You can download the latest version of Python 3 from [python.org](https://www.python.org/downloads/).
-- **Add to PATH**: During installation, make sure to check the box that says **"Add Python 3.x to PATH"**. This will allow you to run Python from the command line.
+- **Dynamic File Inclusion**: Automatically includes all files from a specified payload directory into the MSI package.
+- **Script Support**: Allows for optional pre-installation and post-installation scripts to be executed.
+- **Custom Installation Paths**: Specify a custom installation path for the payload.
+- **Dynamic GUID Management**: Automatically handles the generation of `ProductCode` GUIDs for new versions, while using a consistent `UpgradeCode` derived from an identifier provided in the build-info YAML.
+- **Post-Install Actions**: Specify actions like system restart or logout after installation.
 
-### 2. WiX Toolset
+### Prerequisites
 
-- **Download and Install**: The WiX Toolset is required to compile the generated source files into an `.msi` package. Download it from the [WiX Toolset Releases](https://github.com/wixtoolset/wix/releases/).
+- Python 3.x
+- WiX Toolset 5.0 (Make sure WiX is installed and available in your system’s PATH)
+- `PyYAML` for reading the YAML configuration file
 
-## Installation
+### Installation
 
-### 1. Clone the Repository
-
-First, clone the `gorilla-pkg` repository to your local machine:
-
-```bash
-git clone https://github.com/rodchristiansen/gorilla-pkg.git
-cd gorilla-pkg
-```
-
-### 2. Install Python Dependencies
-
-Navigate to the cloned repository directory and install the required Python packages using `pip`:
+Clone the repository:
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/rodchristiansen/`gorillapkg`.git
+cd `gorillapkg`
 ```
 
-This will install `PyYAML`, which is used to parse the YAML configuration file.
+### Usage
 
-### 3. (Optional) Build the Standalone Executable
-
-If you prefer to distribute and use `gorilla-pkg` as a standalone executable without requiring Python, you can build it using `PyInstaller`:
+To create a new MSI project:
 
 ```bash
-pyinstaller --onefile --name gorillapkg gorilla-pkg.py
+python `gorillapkg`.py <project_dir> --create
 ```
 
-The resulting `gorillapkg.exe` will be located in the `dist` directory.
+This command will create a new project directory structure at `<project_dir>`, including:
 
-### 4. (Optional) Add the Executable to Your PATH
+- `payload/` - Directory for the files you want to include in the MSI package.
+- `scripts/` - Directory for optional pre-installation and post-installation scripts.
+- `build-info.yaml` - Configuration file to control the MSI package creation.
 
-To make `gorillapkg.exe` accessible from any command prompt without needing to navigate to its directory, you can add it to your system’s PATH:
+#### build-info.yaml
 
-#### Steps to Add to PATH:
-
-1. **Move the Executable**: Move `gorillapkg.exe` from the `dist` directory to a permanent location, such as `C:\Program Files\gorillapkg\`.
-
-2. **Add to PATH**:
-   - Right-click on the **Start** button and select **System**.
-   - Click on **Advanced system settings** on the left.
-   - In the System Properties window, click on the **Environment Variables** button.
-   - In the **Environment Variables** window, find the **Path** variable under "System variables" and select it, then click **Edit**.
-   - In the **Edit Environment Variable** dialog, click **New** and paste the path to the directory where `gorillapkg.exe` is located (e.g., `C:\Program Files\gorillapkg\`).
-   - Click **OK** to close all dialog boxes.
-
-3. **Verify the PATH**: Open a new Command Prompt and type `gorillapkg`. If it’s correctly added to the PATH, it should run without needing to specify the full path.
-
-## Usage
-
-To use `gorilla-pkg`, you can either run it as a Python script or as a standalone executable (if you’ve built one).
-
-### Run as a Python Script
-
-```bash
-python gorilla-pkg.py MyMsiProject/
-```
-
-### Run as a Standalone Executable
-
-```bash
-gorillapkg MyMsiProject/
-```
-
-### Project Directory Layout
-
-A typical project directory for `gorilla-pkg` should look like this:
-
-```
-MsiProject/
-├── payload/
-├── scripts/
-└── build-info.yaml
-```
-
-- **`build-info.yaml`**: Configuration file that specifies the installation parameters, such as the product name, version, and the upgrade code.
-- **`payload/`**: Directory containing the files to be included in the `.msi` package.
-- **`scripts/`**: Directory containing `preinstall.bat` and `postinstall.bat` scripts to be executed before and after the installation process.
-
-### Example `build-info.yaml`
-
-Here’s an example of what your `build-info.yaml` might look like:
+The `build-info.yaml` file contains configuration settings for your project:
 
 ```yaml
 product:
-  name: MyApp
-  version: 1.0.0
-  manufacturer: MyCompany
-  upgrade_code: com.domain.winadmins.myapp
+  name: "MyApp"
+  version: "1.0.0"
+  manufacturer: "MyCompany"
+  identifier: "com.example.myapp"
+install_path: "C:\\Program Files\\MyApp"
+postinstall_action: "none"  # Options: "none", "logout", "restart"
 ```
 
-### Smart Handling of Files and Actions
+- **identifier**: A reverse domain-style identifier for the application. This remains constant across versions to allow the system to recognize updates.
+- **install_path**: Default installation path (can be customized per build).
+- **postinstall_action**: Action to be taken after installation (`none`, `logout`, or `restart`).
 
-`gorilla-pkg` is designed to be smart enough to handle your project structure dynamically:
+### Building the MSI
 
-- **Files Detection**: You no longer need to manually list files in the `build-info.yaml` file. The script will automatically detect all files in the `payload` directory and include them in the package.
-  
-- **Actions Detection**: Similarly, `preinstall` and `postinstall` scripts in the `scripts` directory are automatically detected and included if they exist. If no scripts are found, the package will still be created without any actions.
-
-### Payload-Free Packages
-
-WiX allows the creation of payload-free packages, which means you can have an `.msi` installer that only runs scripts without installing any files. If the `payload` directory is empty or missing, but scripts are present, the package will still be built.
-
-### Building the `.msi` Package
-
-Once your project directory is set up, you can build the `.msi` package by running:
+To build the MSI package:
 
 ```bash
-python gorilla-pkg.py MyMsiProject/
+python `gorillapkg`.py <project_dir> --output <output_dir> --wix-path <path_to_wix>
 ```
 
-Or, if you built the executable:
+Where:
+- `<project_dir>` is the directory containing your project files.
+- `<output_dir>` is where the final MSI package will be saved.
+- `<path_to_wix>` is the path to your WiX Toolset installation.
+
+The script will:
+1. Generate the required `.wxs` files, including `Package.wxs` using the correct WiX schema.
+2. Compile and build the MSI using WiX Toolset.
+3. Output the MSI to the specified directory.
+
+### Example
+
+Here's an example of a typical usage scenario:
 
 ```bash
-gorillapkg MyMsiProject/
+python `gorillapkg`.py "C:\Projects\MyApp"
 ```
 
-This command will:
-
-1. Verify that the WiX Toolset is installed and accessible.
-2. Automatically detect files in the `payload` directory and scripts in the `scripts` directory.
-3. Generate the necessary WiX source files in the `src/` directory of your project.
-4. Compile these files into an `.msi` package located in the `output/` directory within your project.
-
-### Error Handling
-
-If the WiX Toolset is not installed or not found in the expected directory, `gorilla-pkg` will display an error message and exit. You should verify the installation and the path before proceeding.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue on the [GitHub repository](https://github.com/rodchristiansen/gorilla-pkg).
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This will create an MSI package for the application located in `C:\Projects\MyApp`, and output the installer to the `output` directory.
