@@ -151,9 +151,6 @@ def generate_wix_files(project_dir, config):
     # Generate ProductCode and UpgradeCode based on the identifier
     product_code, upgrade_code = generate_guids(config['product']['identifier'])
     
-    # Parse version to ensure compatibility with MSI rules
-    parsed_version = parse_version(config['product']['version'])
-    
     # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
@@ -162,7 +159,7 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <StandardDirectory Id="ProgramFilesFolder">
             <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
@@ -178,7 +175,6 @@ def generate_wix_files(project_dir, config):
     """
     (src_dir / "Package.wxs").write_text(package_wxs_content.strip())
     log("WiX source files generated successfully.")
-
 
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
@@ -282,7 +278,15 @@ def build_msi(project_dir, wix_path, output_dir=None):
         return
 
     log(f"MSI package created successfully at {msi_file}.")
-    
+
+    # Clean up the src directory and Package.wxs file after the build
+    log(f"Cleaning up the src directory: {src_dir}")
+    try:
+        shutil.rmtree(src_dir)
+        log("src directory and Package.wxs file have been removed.")
+    except Exception as e:
+        log(f"Failed to clean up src directory: {str(e)}", error=True)
+
 # Main function with command-line arguments
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
