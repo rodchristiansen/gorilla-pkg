@@ -82,6 +82,16 @@ def get_scripts(project_dir):
 
     return actions
 
+# Function to generate UpgradeCodes
+def generate_guids(identifier):
+    # Generate a consistent UpgradeCode using the identifier
+    upgrade_code = uuid.uuid5(uuid.NAMESPACE_DNS, identifier)
+    
+    # Generate a new ProductCode for each version (can be changed per run)
+    product_code = uuid.uuid4()
+    
+    return str(product_code), str(upgrade_code)
+
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
@@ -97,6 +107,9 @@ def generate_wix_files(project_dir, config):
     # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
+    # Generate ProductCode and UpgradeCode using the identifier
+    product_code, upgrade_code = generate_guids(config['product']['identifier'])
+    
     # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
@@ -105,7 +118,7 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+    <Package Id="{product_code}" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFilesFolder">
