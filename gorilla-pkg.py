@@ -92,6 +92,23 @@ def generate_guids(identifier):
     
     return str(product_code), str(upgrade_code)
 
+def parse_version(version_str):
+    """
+    Parses a date-based version string (e.g., '2024.08.09') and converts it to a Windows Installer compatible version.
+    Major version: Year
+    Minor version: Month
+    Build version: Day
+    """
+    try:
+        major, minor, build = version_str.split('.')
+        major = int(major) % 256
+        minor = int(minor) % 256
+        build = int(build) % 65536
+        return f"{major}.{minor}.{build}"
+    except ValueError:
+        log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD'.", error=True)
+        sys.exit(1)
+
 # Function to generate WiX files
 def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
@@ -109,6 +126,9 @@ def generate_wix_files(project_dir, config):
     # Generate ProductCode and UpgradeCode based on the identifier
     product_code, upgrade_code = generate_guids(config['product']['identifier'])
     
+    # Parse version to ensure compatibility with MSI rules
+    parsed_version = parse_version(config['product']['version'])
+    
     # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
@@ -117,7 +137,7 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <StandardDirectory Id="ProgramFilesFolder">
             <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
@@ -133,6 +153,7 @@ def generate_wix_files(project_dir, config):
     """
     (src_dir / "Package.wxs").write_text(package_wxs_content.strip())
     log("WiX source files generated successfully.")
+
 
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
