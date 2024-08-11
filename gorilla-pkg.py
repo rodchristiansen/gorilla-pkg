@@ -162,12 +162,12 @@ def generate_wix_files(project_dir, config):
     # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
-    # Generate Product.wxs content
-    component_refs = " ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])
+    # Ensure we have components to reference
+    if not files:
+        log("No files found in the payload. Aborting generation.", error=True)
+        return
     
-    if not component_refs:
-        log("No ComponentRefs generated, something might be wrong.", error=True)
-
+    # Generate Product.wxs content
     product_wxs_content = f"""
 <Wix xmlns="{namespace}">
     <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
@@ -179,7 +179,7 @@ def generate_wix_files(project_dir, config):
             </Directory>
         </Directory>
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            {component_refs}
+            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
         </Feature>
         {generate_install_execute_sequence(actions, postinstall_action)}
     </Product>
