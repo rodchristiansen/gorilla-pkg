@@ -151,6 +151,9 @@ def generate_wix_files(project_dir, config):
     # Generate ProductCode and UpgradeCode based on the identifier
     product_code, upgrade_code = generate_guids(config['product']['identifier'])
     
+    # Parse the version using the new function
+    parsed_version = parse_version(config['product']['version'])
+    
     # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
@@ -159,7 +162,7 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <StandardDirectory Id="ProgramFilesFolder">
             <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
