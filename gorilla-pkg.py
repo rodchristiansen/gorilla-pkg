@@ -146,6 +146,126 @@ def generate_wix_files(project_dir, config):
         (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
 
     log("WiX source files generated successfully.")
+
+# Adjust the verification logic
+def generate_wix_files(project_dir, config):
+    log("Generating WiX source files...")
+    src_dir = Path(project_dir) / "src"
+    
+    # Clean up the src directory before generating new files
+    clean_src_folder(src_dir)
+    
+    files = get_files_from_payload(project_dir)
+    actions = get_scripts(project_dir)
+    postinstall_action = config.get("postinstall_action", "none")
+    
+    # Correct namespace for WiX v5
+    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    
+    # Generate Product.wxs content
+    product_wxs_content = f"""
+<Wix xmlns="{namespace}">
+    <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+        <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+        <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}" />
+            </Directory>
+        </Directory>
+        <Feature Id="MainFeature" Title="Main Feature" Level="1">
+            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+        </Feature>
+        {generate_install_execute_sequence(actions, postinstall_action)}
+    </Product>
+</Wix>
+    """
+    (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
+
+    # Generate DirectoryStructure.wxs content
+    directory_wxs_content = f"""
+<Wix xmlns="{namespace}">
+    <Fragment>
+        <DirectoryRef Id="INSTALLFOLDER">
+            {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
+        </DirectoryRef>
+    </Fragment>
+</Wix>
+    """
+    (src_dir / "DirectoryStructure.wxs").write_text(directory_wxs_content.strip())
+
+    # Generate Components.wxs content
+    components_wxs_content = f"""
+<Wix xmlns="{namespace}">
+    <Fragment>
+        <ComponentGroup Id="ProductComponents">
+            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+        </ComponentGroup>
+    </Fragment>
+</Wix>
+    """
+    (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
+
+    # Generate CustomActions.wxs if needed
+    if actions or postinstall_action in ['logout', 'restart']:
+        custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action, namespace)
+        (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
+
+    log("WiX source files generated successfully.")
+
+# Adjust the verification logic
+def verify_wxs_files(project_dir):
+    src_dir = Path(project_dir) / "src"
+    expected_files = {'Components.wxs', 'DirectoryStructure.wxs', 'Product.wxs'}
+    actual_files = {file.name for file in src_dir.glob('*.wxs')}
+    
+    # Check for file existence
+    missing_files = expected_files - actual_files
+    extra_files = actual_files - expected_files
+    if missing_files or extra_files:
+        log(f"Missing or unexpected WXS files. Missing: {missing_files}, Unexpected: {extra_files}", error=True)
+        return False
+
+    # Detailed content checks, especially for Product.wxs
+    product_wxs_path = src_dir / "Product.wxs"
+    directory_wxs_path = src_dir / "DirectoryStructure.wxs"
+    components_wxs_path = src_dir / "Components.wxs"
+    
+    try:
+        with open(product_wxs_path, 'r') as product_file, open(directory_wxs_path, 'r') as directory_file, open(components_wxs_path, 'r') as components_file:
+            product_content = product_file.read()
+            directory_content = directory_file.read()
+            components_content = components_file.read()
+
+            necessary_tags = ["<Product", "<Directory", "<Feature", "<ComponentRef"]
+            missing_tags = [tag for tag in necessary_tags if tag not in product_content]
+            if missing_tags:
+                log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
+                return False
+
+            # Verify that all components in DirectoryStructure.wxs are referenced in Product.wxs
+            for line in directory_content.splitlines():
+                if "Component Id=" in line:
+                    component_id = line.split('Component Id="')[1].split('"')[0]
+                    if f'ComponentRef Id="{component_id}"' not in product_content:
+                        log(f"Component '{component_id}' defined in DirectoryStructure.wxs is not referenced in Product.wxs.", error=True)
+                        return False
+
+            # Also ensure that each component referenced in Components.wxs is included in Product.wxs
+            for line in components_content.splitlines():
+                if "ComponentRef Id=" in line:
+                    component_id = line.split('ComponentRef Id="')[1].split('"')[0]
+                    if f'ComponentRef Id="{component_id}"' not in product_content:
+                        log(f"ComponentRef '{component_id}' in Components.wxs is not included in Product.wxs.", error=True)
+                        return False
+
+    except IOError as e:
+        log(f"Error reading WiX source files: {str(e)}", error=True)
+        return False
+
+    # All checks passed
+    log("WXS files verification passed.")
+    return True
     
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
