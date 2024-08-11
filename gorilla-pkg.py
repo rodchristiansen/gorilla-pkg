@@ -87,44 +87,42 @@ def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
     src_dir = Path(project_dir) / "src"
     
+    # Clean up the src directory before generating new files
     clean_src_folder(src_dir)
     
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
+    # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
+    # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
         return
     
-    component_xml_parts = [f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files]
-    component_ref_xml_parts = [f'<ComponentRef Id="{file["component_id"]}" />' for file in files]
-    
-    product_wxs_content = f"""
+    # Generate Package.wxs content for WiX v5
+    package_wxs_content = f"""
 <Wix xmlns="{namespace}">
     <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFilesFolder">
                 <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                    {"".join(component_xml_parts)}
+                    {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
                 </Directory>
             </Directory>
         </Directory>
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            {"".join(component_ref_xml_parts)}
+            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
         </Feature>
         {generate_install_execute_sequence(actions, postinstall_action)}
     </Package>
 </Wix>
     """
-    product_wxs_path = src_dir / "Product.wxs"
-    product_wxs_path.write_text(product_wxs_content.strip())
-    log(f"WiX source files generated at {product_wxs_path} with content:\n{product_wxs_content}")
-
-
+    (src_dir / "Package.wxs").write_text(package_wxs_content.strip())
+    log("WiX source files generated successfully.")
 
 def generate_install_execute_sequence(actions, postinstall_action):
     sequence_parts = []
@@ -186,7 +184,7 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
-    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    namespace = "http://wixtoolset.org/schemas/v5/wxs"
     
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
