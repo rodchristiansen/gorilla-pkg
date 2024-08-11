@@ -215,6 +215,42 @@ def generate_wix_files(project_dir, config):
     """
     (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
     log("WiX source files generated successfully.")
+    
+def verify_wxs_files(project_dir):
+    src_dir = Path(project_dir) / "src"
+    expected_files = {'Product.wxs'}
+    actual_files = {file.name for file in src_dir.glob('*.wxs')}
+    
+    # Check for file existence
+    if expected_files != actual_files:
+        missing_files = expected_files - actual_files
+        extra_files = actual_files - expected_files
+        log(f"Missing or unexpected WXS files. Missing: {missing_files}, Unexpected: {extra_files}", error=True)
+        return False
+
+    # Detailed content checks, especially for Product.wxs
+    product_wxs_path = src_dir / "Product.wxs"
+    try:
+        with open(product_wxs_path, 'r') as file:
+            content = file.read()
+            necessary_tags = ["<Product", "<Directory", "<ComponentRef>"]
+            missing_tags = [tag for tag in necessary_tags if tag not in content]
+            if missing_tags:
+                log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
+                return False
+            
+            # Additional specific structure checks
+            if "<DirectoryRef" not in content or "<ComponentRef" not in content:
+                log("Product.wxs appears to be missing necessary directory or component references.", error=True)
+                return False
+
+    except IOError as e:
+        log(f"Error reading {product_wxs_path}: {str(e)}", error=True)
+        return False
+
+    # All checks passed
+    log("WXS files verification passed.")
+    return True
 
 # Function to compile and link WiX files into an MSI
 def build_msi(project_dir, wix_path, output_dir):
