@@ -93,7 +93,7 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
-    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    namespace = "http://wixtoolset.org/schemas/v5/wxs"
     
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
@@ -186,7 +186,7 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
-    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    namespace = "http://wixtoolset.org/schemas/v5/wxs"
     
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
