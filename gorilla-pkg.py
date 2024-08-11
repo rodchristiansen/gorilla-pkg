@@ -271,8 +271,6 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
-    
-    # Use the product name from build-info.yaml as the MSI file name
     msi_file_name = f"{config['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
@@ -293,8 +291,8 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     except Exception as e:
         log(f"Failed to clean up src directory: {str(e)}", error=True)
 
-    # Clean up the .wixpdp file if it exists
-    wixpdp_file = Path(project_dir) / f"{config['product']['name']}.wixpdp"
+    # Clean up the .wixpdp file in the build directory
+    wixpdp_file = output_dir / f"{msi_file.stem}.wixpdb"
     if wixpdp_file.exists():
         try:
             wixpdp_file.unlink()
