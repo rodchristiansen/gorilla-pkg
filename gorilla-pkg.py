@@ -333,7 +333,7 @@ def main():
             sys.exit(1)
 
         # Build the MSI package with an optional output directory
-        build_msi(args.project_dir, args.wix_path, args.output)
+        build_msi(args.project_dir, args.wix_path, config, args.output)
         log("MSI package creation process completed.")
 
 if __name__ == '__main__':
