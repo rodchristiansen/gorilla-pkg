@@ -178,22 +178,18 @@ def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
     src_dir = Path(project_dir) / "src"
     
-    # Clean up the src directory before generating new files
     clean_src_folder(src_dir)
     
     files = get_files_from_payload(project_dir)
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
-    # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
-    # Ensure we have components to reference
     if not files:
         log("No files found in the payload. Aborting generation.", error=True)
         return
     
-    # Generate Product.wxs content
     component_xml_parts = [f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files]
     component_ref_xml_parts = [f'<ComponentRef Id="{file["component_id"]}" />' for file in files]
     
@@ -216,8 +212,12 @@ def generate_wix_files(project_dir, config):
     </Product>
 </Wix>
     """
-    (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
-    log("WiX source files generated successfully.")
+    product_wxs_path = src_dir / "Product.wxs"
+    product_wxs_path.write_text(product_wxs_content.strip())
+    log(f"WiX source files generated at {product_wxs_path} with content:\n{product_wxs_content}")
+    
+    # This will allow you to check what exactly is written in Product.wxs
+    log(f"Generated Product.wxs content:\n{product_wxs_content}")
     
 def verify_wxs_files(project_dir):
     src_dir = Path(project_dir) / "src"
@@ -256,6 +256,7 @@ def verify_wxs_files(project_dir):
     return True
 
 # Function to compile and link WiX files into an MSI
+# Function to compile and create MSI package using WiX v5 toolset
 def build_msi(project_dir, wix_path, output_dir):
     if not verify_wxs_files(project_dir):
         log("Verification of WiX source files failed, aborting MSI creation.", error=True)
@@ -267,22 +268,16 @@ def build_msi(project_dir, wix_path, output_dir):
     
     wix_exe = Path(wix_path) / "wix.exe"
     product_wix_file = src_dir / "Product.wxs"
-    product_wixobj_file = output_dir / "Product.wixobj"
+    msi_file = output_dir / "MyInstaller.msi"
     
-    command = f'"{wix_exe}" build "{product_wix_file}" -out "{product_wixobj_file}"'
+    # Updated command to use wix.exe for building MSI
+    command = f'"{wix_exe}" build -out "{msi_file}" "{product_wix_file}"'
     success, output = run_command(command)
     if not success:
-        log(f"Failed to build {product_wix_file.name}, aborting MSI creation.", error=True)
+        log("Failed to create MSI package.", error=True)
         return
 
-    msi_file = output_dir / "MyInstaller.msi"
-    link_command = f'"{wix_exe}" link "{product_wixobj_file}" -out "{msi_file}"'
-    success, output = run_command(link_command)
-    if not success:
-        log("Failed to link object files into an MSI package.", error=True)
-        return
-
-    log("MSI package created successfully.")
+    log("MSI package created successfully at {msi_file}.")
 
 # Function to create a new project directory
 def create_project_directory(project_dir):
