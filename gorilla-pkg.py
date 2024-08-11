@@ -173,50 +173,6 @@ def run_command(command, quiet=False, verbose=False):
     if not quiet:
         log(result.stdout)
     return True, result.stdout
-    
-def generate_wix_files(project_dir, config):
-    log("Generating WiX source files...")
-    src_dir = Path(project_dir) / "src"
-    
-    clean_src_folder(src_dir)
-    
-    files = get_files_from_payload(project_dir)
-    actions = get_scripts(project_dir)
-    postinstall_action = config.get("postinstall_action", "none")
-    
-    namespace = "http://wixtoolset.org/schemas/v5/wxs"
-    
-    if not files:
-        log("No files found in the payload. Aborting generation.", error=True)
-        return
-    
-    component_xml_parts = [f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files]
-    component_ref_xml_parts = [f'<ComponentRef Id="{file["component_id"]}" />' for file in files]
-    
-    product_wxs_content = f"""
-<Wix xmlns="{namespace}">
-    <Fragment>
-        <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
-            <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
-            <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
-            <Directory Id="TARGETDIR" Name="SourceDir">
-                <Directory Id="ProgramFilesFolder">
-                    <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                        {"".join(component_xml_parts)}
-                    </Directory>
-                </Directory>
-            </Directory>
-            <Feature Id="MainFeature" Title="Main Feature" Level="1">
-                {"".join(component_ref_xml_parts)}
-            </Feature>
-            {generate_install_execute_sequence(actions, postinstall_action)}
-        </Product>
-    </Fragment>
-</Wix>
-    """
-    product_wxs_path = src_dir / "Product.wxs"
-    product_wxs_path.write_text(product_wxs_content.strip())
-    log(f"WiX source files generated at {product_wxs_path} with content:\n{product_wxs_content}")
 
 def verify_wxs_files(project_dir):
     src_dir = Path(project_dir) / "src"
