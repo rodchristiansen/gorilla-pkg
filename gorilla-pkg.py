@@ -7,6 +7,7 @@ import yaml
 import argparse
 import uuid
 import shutil
+import shlex
 from pathlib import Path
 
 # Define constants
@@ -256,9 +257,20 @@ def verify_wxs_files(project_dir):
 
     log("WXS files verification passed.")
     return True
+    
+# Function to run SignTool if 'identity' key is present
+def sign_msi(msi_file, identity):
+    log(f"Signing MSI package {msi_file} with identity {identity}")
+    sign_command = f'signtool sign /n "{identity}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "{msi_file}"'
+    success, output = run_command(shlex.quote(sign_command))
+    if not success:
+        log("Failed to sign MSI package.", error=True)
+        return False
+    log("MSI package signed successfully.")
+    return True
 
-# Function to compile and create MSI package using WiX v5 toolset
-def build_msi(project_dir, wix_path, config, output_dir=None):
+# Update the build_msi function to include signing
+def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
     # Use 'build' folder as default output directory unless specified
@@ -271,7 +283,7 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
-    msi_file_name = f"{config['product']['name']}.msi"
+    msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
     # Command to use Package.wxs for building MSI
@@ -280,9 +292,16 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     if not success:
         log("Failed to create MSI package.", error=True)
         return
-
+    
     log(f"MSI package created successfully at {msi_file}.")
-
+    
+    # Check if 'identity' key is present in build-info.yaml for signing
+    config = read_build_info(project_dir)
+    if 'identity' in config:
+        if not sign_msi(msi_file, config['identity']):
+            log("MSI signing process failed.", error=True)
+            return
+    
     # Clean up the src directory and Package.wxs file after the build
     log(f"Cleaning up the src directory: {src_dir}")
     try:
@@ -291,14 +310,14 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     except Exception as e:
         log(f"Failed to clean up src directory: {str(e)}", error=True)
 
-    # Clean up the .wixpdp file in the build directory
-    wixpdp_file = output_dir / f"{msi_file.stem}.wixpdb"
-    if wixpdp_file.exists():
+    # Clean up the .wixpdb file
+    wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
+    if wixpdb_file.exists():
         try:
-            wixpdp_file.unlink()
-            log(f"{wixpdp_file} has been removed.")
+            wixpdb_file.unlink()
+            log(f"{wixpdb_file} file has been removed.")
         except Exception as e:
-            log(f"Failed to remove {wixpdp_file}: {str(e)}", error=True)
+            log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
 
 # Main function with command-line arguments
 def main():
@@ -331,8 +350,11 @@ def main():
             sys.exit(1)
 
         # Build the MSI package with an optional output directory
-        build_msi(args.project_dir, args.wix_path, config, args.output)
+        build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
+
+if __name__ == '__main__':
+    main()
 
 if __name__ == '__main__':
     main()
