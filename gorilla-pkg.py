@@ -117,22 +117,30 @@ def create_project_directory(project_dir):
     print(f"Created new project directory at {project_dir}")
     return True
 
-# Function for YYYY.MM.YY version number in build-info.yaml
+# Function to parse version number in build-info.yaml
 def parse_version(version_str):
     """
-    Parses a date-based version string (e.g., '2024.08.09') and converts it to a Windows Installer compatible version.
-    Major version: Year
-    Minor version: Month
-    Build version: Day
+    Parses a version string and converts it to a Windows Installer compatible version.
+    If the version is date-based (e.g., '2024.08.09'), it converts it to 'YY.MM.DD'.
+    If the version is semantic (e.g., '1.2.3'), it is returned as is.
     """
     try:
-        major, minor, build = version_str.split('.')
-        major = int(major) % 256
-        minor = int(minor) % 256
-        build = int(build) % 65536
-        return f"{major}.{minor}.{build}"
+        parts = version_str.split('.')
+        if len(parts) == 3 and len(parts[0]) == 4:  # Date-based version
+            major = int(parts[0][-2:])  # Last two digits of the year
+            minor = int(parts[1]) % 256
+            build = int(parts[2]) % 65536
+            return f"{major}.{minor}.{build}"
+        elif len(parts) == 3:  # Semantic version
+            major = int(parts[0]) % 256
+            minor = int(parts[1]) % 256
+            build = int(parts[2]) % 65536
+            return f"{major}.{minor}.{build}"
+        else:
+            log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD' or 'X.Y.Z'.", error=True)
+            sys.exit(1)
     except ValueError:
-        log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD'.", error=True)
+        log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD' or 'X.Y.Z'.", error=True)
         sys.exit(1)
 
 # Function to generate WiX files
@@ -352,9 +360,6 @@ def main():
         # Build the MSI package with an optional output directory
         build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
-
-if __name__ == '__main__':
-    main()
 
 if __name__ == '__main__':
     main()
