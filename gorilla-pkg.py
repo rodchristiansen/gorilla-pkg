@@ -91,7 +91,32 @@ def generate_guids(identifier):
     product_code = uuid.uuid4()
     
     return str(product_code), str(upgrade_code)
+    
+# Function to create a new project directory
+def create_project_directory(project_dir):
+    project_path = Path(project_dir)
+    if project_path.exists():
+        print(f"Error: Directory {project_dir} already exists.")
+        return False
+    project_path.mkdir()
+    (project_path / "payload").mkdir()
+    (project_path / "scripts").mkdir()
+    default_build_info = {
+        "product": {
+            "name": "MyApp",
+            "version": "1.0.0",
+            "manufacturer": "MyCompany",
+            "identifier": "com.domain.winadmins.package_name"
+        },
+        "install_path": "C:\\Program Files\\MyApp",
+        "postinstall_action": "none"
+    }
+    with open(project_path / BUILD_INFO_FILE, 'w') as file:
+        yaml.dump(default_build_info, file, default_flow_style=False)
+    print(f"Created new project directory at {project_dir}")
+    return True
 
+# Function for YYYY.MM.YY version number in build-info.yaml
 def parse_version(version_str):
     """
     Parses a date-based version string (e.g., '2024.08.09') and converts it to a Windows Installer compatible version.
@@ -234,16 +259,22 @@ def verify_wxs_files(project_dir):
     return True
 
 # Function to compile and create MSI package using WiX v5 toolset
-def build_msi(project_dir, wix_path, output_dir):
+def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
-    output_dir = Path(output_dir)
+    
+    # Use 'build' folder as default output directory unless specified
+    if output_dir is None:
+        output_dir = Path(project_dir) / "build"
+    else:
+        output_dir = Path(output_dir)
+    
     output_dir.mkdir(exist_ok=True)
     
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
     msi_file = output_dir / "MyInstaller.msi"
     
-    # Updated command to use Package.wxs for building MSI
+    # Command to use Package.wxs for building MSI
     command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
@@ -251,12 +282,13 @@ def build_msi(project_dir, wix_path, output_dir):
         return
 
     log(f"MSI package created successfully at {msi_file}.")
+    
 # Main function with command-line arguments
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
     parser.add_argument('project_dir', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
-    parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.", default='output')
+    parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.")
     parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
     
     args = parser.parse_args()
@@ -281,7 +313,7 @@ def main():
             log("Verification of WiX source files failed, aborting MSI creation.", error=True)
             sys.exit(1)
 
-        # Build the MSI package
+        # Build the MSI package with an optional output directory
         build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
 
