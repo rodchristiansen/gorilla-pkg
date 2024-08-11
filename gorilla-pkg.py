@@ -110,12 +110,12 @@ def generate_wix_files(project_dir, config):
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFilesFolder">
                 <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                    {" ".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
+                    {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
                 </Directory>
             </Directory>
         </Directory>
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
         </Feature>
         {generate_install_execute_sequence(actions, postinstall_action)}
     </Product>
@@ -128,7 +128,7 @@ def generate_wix_files(project_dir, config):
 <Wix xmlns="{namespace}">
     <Fragment>
         <ComponentGroup Id="ProductComponents">
-            {" ".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
         </ComponentGroup>
     </Fragment>
 </Wix>
