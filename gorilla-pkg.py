@@ -122,24 +122,6 @@ def generate_wix_files(project_dir, config):
 </Wix>
     """
     (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
-
-    # Generate Components.wxs content
-    components_wxs_content = f"""
-<Wix xmlns="{namespace}">
-    <Fragment>
-        <ComponentGroup Id="ProductComponents">
-            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
-        </ComponentGroup>
-    </Fragment>
-</Wix>
-    """
-    (src_dir / "Components.wxs").write_text(components_wxs_content.strip())
-
-    # Generate CustomActions.wxs if needed
-    if actions or postinstall_action in ['logout', 'restart']:
-        custom_actions_wxs_content = generate_custom_actions_wxs(actions, postinstall_action, namespace)
-        (src_dir / "CustomActions.wxs").write_text(custom_actions_wxs_content.strip())
-
     log("WiX source files generated successfully.")
 
 def generate_install_execute_sequence(actions, postinstall_action):
@@ -154,7 +136,6 @@ def generate_install_execute_sequence(actions, postinstall_action):
         sequence_parts.append('<Custom Action="ForceRestart" After="InstallFinalize">Installed</Custom>')
     
     return "\n      ".join(sequence_parts)
-
 
 def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     custom_actions = ""
@@ -195,7 +176,7 @@ def run_command(command, quiet=False, verbose=False):
     
 def verify_wxs_files(project_dir):
     src_dir = Path(project_dir) / "src"
-    expected_files = {'Components.wxs', 'Product.wxs'}
+    expected_files = {'Product.wxs'}
     actual_files = {file.name for file in src_dir.glob('*.wxs')}
     
     # Check for file existence
@@ -217,8 +198,8 @@ def verify_wxs_files(project_dir):
                 return False
             
             # Additional specific structure checks
-            if "<DirectoryRef" not in content or "<ComponentRef" not in content:
-                log("Product.wxs appears to be missing necessary directory or component references.", error=True)
+            if "<Component" not in content or "<Feature" not in content:
+                log("Product.wxs appears to be missing necessary component or feature elements.", error=True)
                 return False
 
     except IOError as e:
