@@ -293,6 +293,15 @@ def build_msi(project_dir, wix_path, config, output_dir=None):
     except Exception as e:
         log(f"Failed to clean up src directory: {str(e)}", error=True)
 
+    # Clean up the .wixpdp file if it exists
+    wixpdp_file = Path(project_dir) / f"{config['product']['name']}.wixpdp"
+    if wixpdp_file.exists():
+        try:
+            wixpdp_file.unlink()
+            log(f"{wixpdp_file} has been removed.")
+        except Exception as e:
+            log(f"Failed to remove {wixpdp_file}: {str(e)}", error=True)
+
 # Main function with command-line arguments
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
