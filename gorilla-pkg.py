@@ -258,7 +258,7 @@ def verify_wxs_files(project_dir):
     return True
 
 # Function to compile and create MSI package using WiX v5 toolset
-def build_msi(project_dir, wix_path, output_dir=None):
+def build_msi(project_dir, wix_path, config, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
     # Use 'build' folder as default output directory unless specified
@@ -271,7 +271,10 @@ def build_msi(project_dir, wix_path, output_dir=None):
     
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
-    msi_file = output_dir / "MyInstaller.msi"
+    
+    # Use the product name from build-info.yaml as the MSI file name
+    msi_file_name = f"{config['product']['name']}.msi"
+    msi_file = output_dir / msi_file_name
     
     # Command to use Package.wxs for building MSI
     command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
