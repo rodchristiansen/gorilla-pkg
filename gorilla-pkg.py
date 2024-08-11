@@ -107,7 +107,7 @@ def generate_wix_files(project_dir, config):
     # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
-    # Generate ProductCode and UpgradeCode using the identifier
+    # Generate ProductCode and UpgradeCode based on the identifier
     product_code, upgrade_code = generate_guids(config['product']['identifier'])
     
     # Ensure we have components to reference
@@ -249,7 +249,7 @@ def create_project_directory(project_dir):
             "name": "MyApp",
             "version": "1.0.0",
             "manufacturer": "MyCompany",
-            "upgrade_code": "com.domain.winadmins.package_name"
+            "identifier": "com.domain.winadmins.package_name"
         },
         "install_path": "C:\\Program Files\\MyApp",
         "postinstall_action": "none"
