@@ -176,55 +176,51 @@ def run_command(command, quiet=False, verbose=False):
 
 def verify_wxs_files(project_dir):
     src_dir = Path(project_dir) / "src"
-    product_wxs_path = src_dir / "Product.wxs"
+    package_wxs_path = src_dir / "Package.wxs"
     
     try:
-        with open(product_wxs_path, 'r') as file:
+        with open(package_wxs_path, 'r') as file:
             content = file.read()
 
         # Regex patterns to find tags, accounting for possible newlines and spaces
         patterns = {
-            "Product": r"<Product[^>]*>",
+            "Package": r"<Package[^>]*>",
             "Directory": r"<Directory[^>]*>",
-            "Component": r"<Component[^>]*>",  # Ensure Component tags are checked
+            "Component": r"<Component[^>]*>",
             "ComponentRef": r"<ComponentRef[^>]*>"
         }
 
         missing_tags = [tag for tag, pattern in patterns.items() if not re.search(pattern, content)]
         if missing_tags:
-            log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
+            log(f"Package.wxs is missing necessary tags: {missing_tags}", error=True)
             return False
 
     except Exception as e:
-        log(f"Error reading {product_wxs_path}: {str(e)}", error=True)
+        log(f"Error reading {package_wxs_path}: {str(e)}", error=True)
         return False
 
     log("WXS files verification passed.")
     return True
 
-# Function to compile and link WiX files into an MSI
 # Function to compile and create MSI package using WiX v5 toolset
 def build_msi(project_dir, wix_path, output_dir):
-    if not verify_wxs_files(project_dir):
-        log("Verification of WiX source files failed, aborting MSI creation.", error=True)
-        return
-
     src_dir = Path(project_dir) / "src"
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
     wix_exe = Path(wix_path) / "wix.exe"
-    product_wix_file = src_dir / "Product.wxs"
+    package_wix_file = src_dir / "Package.wxs"
     msi_file = output_dir / "MyInstaller.msi"
     
-    # Updated command to use wix.exe for building MSI
-    command = f'"{wix_exe}" build -out "{msi_file}" "{product_wix_file}"'
+    # Updated command to use Package.wxs for building MSI
+    command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
         return
 
-    log("MSI package created successfully at {msi_file}.")
+    log(f"MSI package created successfully at {msi_file}.")
+
 
 # Function to create a new project directory
 def create_project_directory(project_dir):
