@@ -118,7 +118,7 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Id="{product_code}" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFilesFolder">
