@@ -194,6 +194,9 @@ def generate_wix_files(project_dir, config):
         return
     
     # Generate Product.wxs content
+    component_xml_parts = [f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files]
+    component_ref_xml_parts = [f'<ComponentRef Id="{file["component_id"]}" />' for file in files]
+    
     product_wxs_content = f"""
 <Wix xmlns="{namespace}">
     <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
@@ -202,12 +205,12 @@ def generate_wix_files(project_dir, config):
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFilesFolder">
                 <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                    {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
+                    {"".join(component_xml_parts)}
                 </Directory>
             </Directory>
         </Directory>
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+            {"".join(component_ref_xml_parts)}
         </Feature>
         {generate_install_execute_sequence(actions, postinstall_action)}
     </Product>
@@ -338,7 +341,6 @@ def main():
         # Build the MSI package
         build_msi(args.project_dir, args.wix_path, args.output)
         log("MSI package creation process completed.")
-
 
 if __name__ == '__main__':
     main()
