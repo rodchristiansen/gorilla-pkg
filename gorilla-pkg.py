@@ -104,7 +104,6 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     postinstall_action = config.get("postinstall_action", "none")
     
-    # Correct namespace for WiX v5
     namespace = "http://wixtoolset.org/schemas/v4/wxs"
     
     # Generate ProductCode and UpgradeCode based on the identifier
@@ -120,13 +119,11 @@ def generate_wix_files(project_dir, config):
 <Wix xmlns="{namespace}">
     <Package Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
-        <Directory Id="TARGETDIR" Name="SourceDir">
-            <Directory Id="ProgramFilesFolder">
-                <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                    {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
-                </Directory>
+        <StandardDirectory Id="ProgramFilesFolder">
+            <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
+                {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
             </Directory>
-        </Directory>
+        </StandardDirectory>
         <Feature Id="MainFeature" Title="Main Feature" Level="1">
             {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
         </Feature>
