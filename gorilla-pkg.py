@@ -174,41 +174,47 @@ def run_command(command, quiet=False, verbose=False):
         log(result.stdout)
     return True, result.stdout
     
-def verify_wxs_files(project_dir):
+def generate_wix_files(project_dir, config):
+    log("Generating WiX source files...")
     src_dir = Path(project_dir) / "src"
-    expected_files = {'Product.wxs'}
-    actual_files = {file.name for file in src_dir.glob('*.wxs')}
     
-    # Check for file existence
-    if expected_files != actual_files:
-        missing_files = expected_files - actual_files
-        extra_files = actual_files - expected_files
-        log(f"Missing or unexpected WXS files. Missing: {missing_files}, Unexpected: {extra_files}", error=True)
-        return False
-
-    # Detailed content checks, especially for Product.wxs
-    product_wxs_path = src_dir / "Product.wxs"
-    try:
-        with open(product_wxs_path, 'r') as file:
-            content = file.read()
-            necessary_tags = ["<Product", "<Directory", "<ComponentRef>"]
-            missing_tags = [tag for tag in necessary_tags if tag not in content]
-            if missing_tags:
-                log(f"Product.wxs is missing necessary tags: {missing_tags}", error=True)
-                return False
-            
-            # Additional specific structure checks
-            if "<Component" not in content or "<Feature" not in content:
-                log("Product.wxs appears to be missing necessary component or feature elements.", error=True)
-                return False
-
-    except IOError as e:
-        log(f"Error reading {product_wxs_path}: {str(e)}", error=True)
-        return False
-
-    # All checks passed
-    log("WXS files verification passed.")
-    return True
+    # Clean up the src directory before generating new files
+    clean_src_folder(src_dir)
+    
+    files = get_files_from_payload(project_dir)
+    actions = get_scripts(project_dir)
+    postinstall_action = config.get("postinstall_action", "none")
+    
+    # Correct namespace for WiX v5
+    namespace = "http://wixtoolset.org/schemas/v4/wxs"
+    
+    # Ensure we have components to reference
+    if not files:
+        log("No files found in the payload. Aborting generation.", error=True)
+        return
+    
+    # Generate Product.wxs content
+    product_wxs_content = f"""
+<Wix xmlns="{namespace}">
+    <Product Id="*" Name="{config['product']['name']}" Language="1033" Version="{config['product']['version']}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{config['product']['upgrade_code']}">
+        <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+        <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
+                    {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
+                </Directory>
+            </Directory>
+        </Directory>
+        <Feature Id="MainFeature" Title="Main Feature" Level="1">
+            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
+        </Feature>
+        {generate_install_execute_sequence(actions, postinstall_action)}
+    </Product>
+</Wix>
+    """
+    (src_dir / "Product.wxs").write_text(product_wxs_content.strip())
+    log("WiX source files generated successfully.")
 
 # Function to compile and link WiX files into an MSI
 def build_msi(project_dir, wix_path, output_dir):
