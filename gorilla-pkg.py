@@ -251,32 +251,6 @@ def build_msi(project_dir, wix_path, output_dir):
         return
 
     log(f"MSI package created successfully at {msi_file}.")
-
-
-# Function to create a new project directory
-def create_project_directory(project_dir):
-    project_path = Path(project_dir)
-    if project_path.exists():
-        print(f"Error: Directory {project_dir} already exists.")
-        return False
-    project_path.mkdir()
-    (project_path / "payload").mkdir()
-    (project_path / "scripts").mkdir()
-    default_build_info = {
-        "product": {
-            "name": "MyApp",
-            "version": "1.0.0",
-            "manufacturer": "MyCompany",
-            "identifier": "com.domain.winadmins.package_name"
-        },
-        "install_path": "C:\\Program Files\\MyApp",
-        "postinstall_action": "none"
-    }
-    with open(project_path / BUILD_INFO_FILE, 'w') as file:
-        yaml.dump(default_build_info, file, default_flow_style=False)
-    print(f"Created new project directory at {project_dir}")
-    return True
-
 # Main function with command-line arguments
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
