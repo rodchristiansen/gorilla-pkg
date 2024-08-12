@@ -143,7 +143,6 @@ def parse_version(version_str):
         log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD' or 'X.Y.Z'.", error=True)
         sys.exit(1)
 
-# Function to generate WiX files
 def generate_wix_files(project_dir, config):
     log("Generating WiX source files...")
     src_dir = Path(project_dir) / "src"
@@ -171,9 +170,9 @@ def generate_wix_files(project_dir, config):
     # Generate Package.wxs content for WiX v5
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}" InstallerVersion="500" Platform="x64">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
-        <StandardDirectory Id="ProgramFilesFolder">
+        <StandardDirectory Id="ProgramFiles64Folder">
             <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
                 {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
             </Directory>
