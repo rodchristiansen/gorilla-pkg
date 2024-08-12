@@ -254,7 +254,7 @@ def verify_wxs_files(project_dir):
     package_wxs_path = src_dir / "Package.wxs"
     
     try:
-        with open(package_wxs_path, 'r') as file:
+        with open(package_wxs_path, 'rb') as file:
             content = file.read()
 
         # Use lxml to parse the XML and verify the structure
