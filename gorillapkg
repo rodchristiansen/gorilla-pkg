@@ -168,8 +168,10 @@ def generate_wix_files(project_dir, config):
     }
     etree.SubElement(product, "Package", **package_attrs)
 
-    media = etree.SubElement(product, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
+    etree.SubElement(product, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
+
     target_dir = etree.SubElement(product, "Directory", Id="TARGETDIR", Name="SourceDir")
+    
     program_files = etree.SubElement(target_dir, "Directory", Id="ProgramFiles64Folder")
     install_folder = etree.SubElement(program_files, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
 
@@ -182,9 +184,10 @@ def generate_wix_files(project_dir, config):
     for file in files:
         etree.SubElement(feature, "ComponentRef", Id=file["component_id"])
 
+    # Pass the NS_WIX namespace to generate_install_execute_sequence
     actions = get_scripts(project_dir)
     install_execute_sequence = etree.SubElement(product, "InstallExecuteSequence")
-    for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none")):
+    for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
         install_execute_sequence.append(action)
 
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
