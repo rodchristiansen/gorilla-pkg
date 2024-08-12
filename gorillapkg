@@ -257,21 +257,29 @@ def verify_wxs_files(project_dir):
         with open(package_wxs_path, 'r') as file:
             content = file.read()
 
-        # Regex patterns to find tags, accounting for possible newlines and spaces
-        patterns = {
-            "Package": r"<wix:Package[^>]*>",
-            "Directory": r"<wix:Directory[^>]*>",
-            "Component": r"<wix:Component[^>]*>",
-            "ComponentRef": r"<wix:ComponentRef[^>]*>"
-        }
+        # Use lxml to parse the XML and verify the structure
+        tree = etree.fromstring(content)
+        NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
+        
+        # Verify essential elements exist
+        required_tags = [
+            f"{{{NS_WIX}}}Package",
+            f"{{{NS_WIX}}}Directory",
+            f"{{{NS_WIX}}}Component",
+            f"{{{NS_WIX}}}ComponentRef"
+        ]
 
-        missing_tags = [tag for tag, pattern in patterns.items() if not re.search(pattern, content)]
+        missing_tags = []
+        for tag in required_tags:
+            if not tree.findall(f".//{tag}"):
+                missing_tags.append(tag)
+
         if missing_tags:
             log(f"Package.wxs is missing necessary tags: {missing_tags}", error=True)
             return False
 
     except Exception as e:
-        log(f"Error reading {package_wxs_path}: {str(e)}", error=True)
+        log(f"Error reading or parsing {package_wxs_path}: {str(e)}", error=True)
         return False
 
     log("WXS files verification passed.")
