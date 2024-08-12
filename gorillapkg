@@ -185,17 +185,16 @@ def generate_wix_files(project_dir, config):
 
     # Handle custom actions
     actions = get_scripts(project_dir)
-    fragment = etree.SubElement(wix, "Fragment")
     
-    # Add custom actions if any scripts are found
+    # Add custom actions directly into Product
     if actions:
-        custom_actions = generate_custom_actions_wxs(actions, config.get("postinstall_action", "none"), NS_WIX)
-        for action in custom_actions:
-            fragment.append(action)
-
         install_execute_sequence = etree.SubElement(product, "InstallExecuteSequence")
         for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
             install_execute_sequence.append(action)
+
+        # Correctly define CustomAction references
+        for action in generate_custom_actions_wxs(actions, config.get("postinstall_action", "none"), NS_WIX):
+            product.append(action)
 
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
@@ -212,8 +211,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="PostInstallAction", 
-                                            FileKey="PostInstallScript", 
-                                            ExeCommand="", 
+                                            FileRef="File_Component_PostInstallScript",  # Correcting the attribute
+                                            ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_Component_PostInstallScript]", 
                                             Return="check"))
     
     if postinstall_action == 'logout':
@@ -232,32 +231,29 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
 
     return custom_actions
 
+    
 def generate_install_execute_sequence(actions, postinstall_action, namespace):
     sequence_elements = []
 
     if 'preinstall' in actions:
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", 
-                                               Action="PreInstallAction", 
-                                               Before="InstallInitialize", 
-                                               Text="NOT Installed"))
+        preinstall = etree.Element(f"{{{namespace}}}Custom", Action="PreInstallAction", Before="InstallInitialize")
+        preinstall.text = "NOT Installed"
+        sequence_elements.append(preinstall)
     
     if 'postinstall' in actions:
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", 
-                                               Action="PostInstallAction", 
-                                               After="InstallFinalize", 
-                                               Text="Installed"))
+        postinstall = etree.Element(f"{{{namespace}}}Custom", Action="PostInstallAction", After="InstallFinalize")
+        postinstall.text = "Installed"
+        sequence_elements.append(postinstall)
     
     if postinstall_action == 'logout':
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", 
-                                               Action="ForceLogout", 
-                                               After="InstallFinalize", 
-                                               Text="Installed"))
+        logout = etree.Element(f"{{{namespace}}}Custom", Action="ForceLogout", After="InstallFinalize")
+        logout.text = "Installed"
+        sequence_elements.append(logout)
     
     if postinstall_action == 'restart':
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", 
-                                               Action="ForceRestart", 
-                                               After="InstallFinalize", 
-                                               Text="Installed"))
+        restart = etree.Element(f"{{{namespace}}}Custom", Action="ForceRestart", After="InstallFinalize")
+        restart.text = "Installed"
+        sequence_elements.append(restart)
 
     return sequence_elements
 
