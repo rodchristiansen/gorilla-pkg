@@ -8,6 +8,7 @@ import argparse
 import uuid
 import shutil
 import shlex
+from lxml import etree
 from pathlib import Path
 
 # Define constants
@@ -144,84 +145,93 @@ def parse_version(version_str):
         sys.exit(1)
 
 def generate_wix_files(project_dir, config):
-    log("Generating WiX source files...")
-    src_dir = Path(project_dir) / "src"
-    
-    # Clean up the src directory before generating new files
-    clean_src_folder(src_dir)
-    
-    files = get_files_from_payload(project_dir)
-    actions = get_scripts(project_dir)
-    postinstall_action = config.get("postinstall_action", "none")
-    
-    namespace = "http://wixtoolset.org/schemas/v4/wxs"
-    
-    # Generate ProductCode and UpgradeCode based on the identifier
+    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
+    NSMAP = {'wix': NS_WIX}
+    wix = etree.Element(f"{{{NS_WIX}}}Wix", nsmap=NSMAP)
+
     product_code, upgrade_code = generate_guids(config['product']['identifier'])
-    
-    # Parse the version using the new function
-    parsed_version = parse_version(config['product']['version'])
-    
-    # Ensure we have components to reference
-    if not files:
-        log("No files found in the payload. Aborting generation.", error=True)
-        return
-    
-    # Generate Package.wxs content for WiX v5, defaulting to x64
-    package_wxs_content = f"""
-<Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}" InstallerVersion="500">
-        <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
-        <StandardDirectory Id="ProgramFiles64Folder">
-            <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
-                {"".join([f'<Component Id="{file["component_id"]}" Guid="*"><File Id="{file["component_id"]}" Source="{file["source"]}" KeyPath="yes" /></Component>' for file in files])}
-            </Directory>
-        </StandardDirectory>
-        <Feature Id="MainFeature" Title="Main Feature" Level="1">
-            {"".join([f'<ComponentRef Id="{file["component_id"]}" />' for file in files])}
-        </Feature>
-        {generate_install_execute_sequence(actions, postinstall_action)}
-    </Package>
-</Wix>
-    """
-    (src_dir / "Package.wxs").write_text(package_wxs_content.strip())
-    log("WiX source files generated successfully.")
 
-def generate_install_execute_sequence(actions, postinstall_action):
-    sequence_parts = []
-    if 'preinstall' in actions:
-        sequence_parts.append('<Custom Action="PreInstallAction" Before="InstallInitialize">NOT Installed</Custom>')
-    if 'postinstall' in actions:
-        sequence_parts.append('<Custom Action="PostInstallAction" After="InstallFinalize">Installed</Custom>')
-    if postinstall_action == 'logout':
-        sequence_parts.append('<Custom Action="ForceLogout" After="InstallFinalize">Installed</Custom>')
-    if postinstall_action == 'restart':
-        sequence_parts.append('<Custom Action="ForceRestart" After="InstallFinalize">Installed</Custom>')
-    
-    return "\n      ".join(sequence_parts)
+    product_attrs = {
+        "Id": product_code,
+        "Name": config['product']['name'],
+        "Language": "1033",
+        "Version": parse_version(config['product']['version']),
+        "Manufacturer": config['product']['manufacturer'],
+        "UpgradeCode": upgrade_code
+    }
+    product = etree.SubElement(wix, f"{{{NS_WIX}}}Product", **product_attrs)
 
-def generate_custom_actions_wxs(actions, postinstall_action, namespace):
-    custom_actions = ""
+    package_attrs = {
+        "InstallerVersion": "500",
+        "Compressed": "yes",
+        "InstallScope": "perMachine"
+    }
+    etree.SubElement(product, f"{{{NS_WIX}}}Package", **package_attrs)
+
+    media = etree.SubElement(product, f"{{{NS_WIX}}}Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
+    target_dir = etree.SubElement(product, f"{{{NS_WIX}}}Directory", Id="TARGETDIR", Name="SourceDir")
+    program_files = etree.SubElement(target_dir, f"{{{NS_WIX}}}Directory", Id="ProgramFiles64Folder")
+    install_folder = etree.SubElement(program_files, f"{{{NS_WIX}}}Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
+
+    files = get_files_from_payload(project_dir)
+    for file in files:
+        component = etree.SubElement(install_folder, f"{{{NS_WIX}}}Component", Id=file["component_id"], Guid="*")
+        etree.SubElement(component, f"{{{NS_WIX}}}File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
+
+    feature = etree.SubElement(product, f"{{{NS_WIX}}}Feature", Id="MainFeature", Title="Main Feature", Level="1")
+    for file in files:
+        etree.SubElement(feature, f"{{{NS_WIX}}}ComponentRef", Id=file["component_id"])
+
+    actions = get_scripts(project_dir)
+    install_execute_sequence = etree.SubElement(product, f"{{{NS_WIX}}}InstallExecuteSequence")
+    for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
+        install_execute_sequence.append(action)
+
+    xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+    output_path = Path(project_dir) / "src" / "Package.wxs"
+    with open(output_path, 'wb') as file:
+        file.write(xml_str)
+
+    log("Generated XML:")
+    log(xml_str.decode())  # Log the XML content as a string to help with debugging
+    return output_path
+
+def generate_install_execute_sequence(actions, postinstall_action, namespace):
+    sequence_elements = []
+    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
+
+    # Handle preinstall actions
     if 'preinstall' in actions:
-        custom_actions += f'<CustomAction Id="PreInstallAction" FileKey="PreInstallScript" ExeCommand="" Return="ignore" />'
+        preinstall = etree.Element(f"{{{NS_WIX}}}Custom", Action="PreInstallAction", Before="InstallInitialize")
+        preinstall.text = "NOT Installed"
+        sequence_elements.append(preinstall)
+    
+    # Handle postinstall actions
     if 'postinstall' in actions:
-        custom_actions += f'<CustomAction Id="PostInstallAction" FileKey="PostInstallScript" ExeCommand="" Return="ignore" />'
+        postinstall = etree.Element(f"{{{NS_WIX}}}Custom", Action="PostInstallAction", After="InstallFinalize")
+        postinstall.text = "Installed"
+        sequence_elements.append(postinstall)
+    
+    # Additional actions based on the postinstall_action variable
     if postinstall_action == 'logout':
-        custom_actions += '<CustomAction Id="ForceLogout" ExeCommand="shutdown.exe /l /f" Return="ignore" Directory="SystemFolder" />'
+        logout = etree.Element(f"{{{NS_WIX}}}Custom", Action="ForceLogout", After="InstallFinalize")
+        logout.text = "Installed"
+        sequence_elements.append(logout)
+    
     if postinstall_action == 'restart':
-        custom_actions += '<CustomAction Id="ForceRestart" ExeCommand="shutdown.exe /r /f /t 00" Return="ignore" Directory="SystemFolder" />'
-    return f"""
-<Wix xmlns="{namespace}">
-    <Fragment>
-        <Component Id="CustomActionsComponent" Guid="*">
-            {custom_actions}
-            <File Id="PreInstallScript" Source="{actions.get('preinstall', '')}" KeyPath="yes" />
-            <File Id="PostInstallScript" Source="{actions.get('postinstall', '')}" KeyPath="yes" />
-        </Component>
-    </Fragment>
-</Wix>
-    """
-        
+        restart = etree.Element(f"{{{NS_WIX}}}Custom", Action="ForceRestart", After="InstallFinalize")
+        restart.text = "Installed"
+        sequence_elements.append(restart)
+
+    return sequence_elements
+
+def generate_custom_actions_wxs(project_dir):
+    actions = get_scripts(project_dir)
+    custom_actions = []
+    if 'postinstall' in actions:
+        custom_actions.append({"Id": "PostInstallAction", "ExeCommand": f"[SystemFolder]cmd.exe /c {actions['postinstall']}", "After": "InstallFinalize"})
+    return custom_actions
+
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
     if verbose:
@@ -247,10 +257,10 @@ def verify_wxs_files(project_dir):
 
         # Regex patterns to find tags, accounting for possible newlines and spaces
         patterns = {
-            "Package": r"<Package[^>]*>",
-            "Directory": r"<Directory[^>]*>",
-            "Component": r"<Component[^>]*>",
-            "ComponentRef": r"<ComponentRef[^>]*>"
+            "Package": r"<wix:Package[^>]*>",
+            "Directory": r"<wix:Directory[^>]*>",
+            "Component": r"<wix:Component[^>]*>",
+            "ComponentRef": r"<wix:ComponentRef[^>]*>"
         }
 
         missing_tags = [tag for tag, pattern in patterns.items() if not re.search(pattern, content)]
@@ -293,8 +303,8 @@ def build_msi(project_dir, wix_path, output_dir=None):
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
-    # Command to use Package.wxs for building MSI with default x64 architecture
-    command = f'"{wix_exe}" build -dBUILDARCH=x64 -out "{msi_file}" "{package_wix_file}"'
+    # Command to use Package.wxs for building MSI
+    command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
