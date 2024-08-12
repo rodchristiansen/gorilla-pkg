@@ -198,28 +198,27 @@ def generate_wix_files(project_dir, config):
 
 def generate_install_execute_sequence(actions, postinstall_action, namespace):
     sequence_elements = []
-    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
 
     # Handle preinstall actions
     if 'preinstall' in actions:
-        preinstall = etree.Element(f"{{{NS_WIX}}}Custom", Action="PreInstallAction", Before="InstallInitialize")
+        preinstall = etree.Element(f"{{{namespace}}}Custom", Action="PreInstallAction", Before="InstallInitialize")
         preinstall.text = "NOT Installed"
         sequence_elements.append(preinstall)
     
     # Handle postinstall actions
     if 'postinstall' in actions:
-        postinstall = etree.Element(f"{{{NS_WIX}}}Custom", Action="PostInstallAction", After="InstallFinalize")
+        postinstall = etree.Element(f"{{{namespace}}}Custom", Action="PostInstallAction", After="InstallFinalize")
         postinstall.text = "Installed"
         sequence_elements.append(postinstall)
     
     # Additional actions based on the postinstall_action variable
     if postinstall_action == 'logout':
-        logout = etree.Element(f"{{{NS_WIX}}}Custom", Action="ForceLogout", After="InstallFinalize")
+        logout = etree.Element(f"{{{namespace}}}Custom", Action="ForceLogout", After="InstallFinalize")
         logout.text = "Installed"
         sequence_elements.append(logout)
     
     if postinstall_action == 'restart':
-        restart = etree.Element(f"{{{NS_WIX}}}Custom", Action="ForceRestart", After="InstallFinalize")
+        restart = etree.Element(f"{{{namespace}}}Custom", Action="ForceRestart", After="InstallFinalize")
         restart.text = "Installed"
         sequence_elements.append(restart)
 
