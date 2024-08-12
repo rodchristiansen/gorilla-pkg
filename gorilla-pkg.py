@@ -167,10 +167,10 @@ def generate_wix_files(project_dir, config):
         log("No files found in the payload. Aborting generation.", error=True)
         return
     
-    # Generate Package.wxs content for WiX v5
+    # Generate Package.wxs content for WiX v5, defaulting to x64
     package_wxs_content = f"""
 <Wix xmlns="{namespace}">
-    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}" InstallerVersion="500" Platform="x64">
+    <Package Name="{config['product']['name']}" Language="1033" Version="{parsed_version}" Manufacturer="{config['product']['manufacturer']}" UpgradeCode="{upgrade_code}" InstallerVersion="500">
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
         <StandardDirectory Id="ProgramFiles64Folder">
             <Directory Id="INSTALLFOLDER" Name="{config['install_path'].split(os.sep)[-1]}">
@@ -293,8 +293,8 @@ def build_msi(project_dir, wix_path, output_dir=None):
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
-    # Command to use Package.wxs for building MSI
-    command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
+    # Command to use Package.wxs for building MSI with default x64 architecture
+    command = f'"{wix_exe}" build -dBUILDARCH=x64 -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
