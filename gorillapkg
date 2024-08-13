@@ -152,9 +152,8 @@ def generate_wix_files(project_dir, config):
         "Version": parse_version(config['product']['version']),
         "Manufacturer": config['product']['manufacturer'],
         "UpgradeCode": generate_guids(config['product']['identifier'])[1],
-        "InstallerVersion": "500",           # Added back
-        "Compressed": "yes",                 # Added back
-        "InstallScope": "perMachine"         # Added back
+        "InstallerVersion": "500",           # Installer version can stay here
+        "Compressed": "yes"                  # Compressed attribute can stay here
     }
     package = etree.SubElement(wix, "Package", **package_attrs)
 
