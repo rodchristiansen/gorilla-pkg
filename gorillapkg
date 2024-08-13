@@ -177,7 +177,7 @@ def generate_wix_files(project_dir, config):
         file_element = etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
         etree.SubElement(feature, "ComponentRef", Id=file["component_id"])  # Reference the component in the feature
 
-    # Handle custom actions (e.g., postinstall script)
+    # Handle custom actions (e.g., preinstall and postinstall scripts)
     actions = get_scripts(project_dir)
     if actions:
         for script_type, action in actions.items():
@@ -187,8 +187,14 @@ def generate_wix_files(project_dir, config):
 
         # Add InstallExecuteSequence within Package
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-        for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
-            install_execute_sequence.append(action)
+        if 'preinstall' in actions:
+            etree.SubElement(install_execute_sequence, "Custom", Action="PreInstallAction", Before="InstallInitialize")
+        if 'postinstall' in actions:
+            etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", After="InstallFinalize")
+        if config.get("postinstall_action") == 'logout':
+            etree.SubElement(install_execute_sequence, "Custom", Action="ForceLogout", After="InstallFinalize")
+        if config.get("postinstall_action") == 'restart':
+            etree.SubElement(install_execute_sequence, "Custom", Action="ForceRestart", After="InstallFinalize")
 
         # Custom Actions in a Fragment
         fragment = etree.SubElement(wix, "Fragment")
@@ -215,8 +221,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PreinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
-                                            Impersonate="no",
-                                            Before="InstallInitialize"))
+                                            Impersonate="no"))
     
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
@@ -225,9 +230,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PostinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
-                                            Impersonate="no",
-                                            After="InstallFinalize"))
-    
+                                            Impersonate="no"))
+
     if postinstall_action == 'logout':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="ForceLogout", 
@@ -235,8 +239,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Return="check", 
                                             Directory="SystemFolder",
                                             Execute="deferred",
-                                            Impersonate="no",
-                                            After="InstallFinalize"))
+                                            Impersonate="no"))
     
     if postinstall_action == 'restart':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
@@ -245,8 +248,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Return="check", 
                                             Directory="SystemFolder",
                                             Execute="deferred",
-                                            Impersonate="no",
-                                            After="InstallFinalize"))
+                                            Impersonate="no"))
 
     return custom_actions
 
