@@ -174,16 +174,16 @@ def generate_wix_files(project_dir, config):
     files = get_files_from_payload(project_dir)
     for file in files:
         component = etree.SubElement(management_dir, "Component", Id=file["component_id"], Guid="*")
-        etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
+        file_element = etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
         etree.SubElement(feature, "ComponentRef", Id=file["component_id"])  # Reference the component in the feature
 
     # Handle custom actions (e.g., postinstall script)
     actions = get_scripts(project_dir)
     if actions:
         for script_type, action in actions.items():
-            component = etree.SubElement(management_dir, "Component", Id=action['component_id'], Guid="*")
-            etree.SubElement(component, "File", Id=f"File_{action['component_id']}", Source=action['script_path'], KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=action['component_id'])  # Reference the script component in the feature
+            component = etree.SubElement(management_dir, "Component", Id=f"Component_{script_type.capitalize()}Script", Guid="*")
+            file_element = etree.SubElement(component, "File", Id=f"File_{script_type.capitalize()}Script", Source=action['script_path'], KeyPath="yes")
+            etree.SubElement(feature, "ComponentRef", Id=f"Component_{script_type.capitalize()}Script")  # Reference the script component in the feature
 
         # Add InstallExecuteSequence within Package
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
@@ -211,8 +211,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="PostInstallAction", 
-                                            FileRef="File_Component_PostInstallScript", 
-                                            ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_Component_PostInstallScript]", 
+                                            FileRef="File_PostinstallScript",  # Corrected FileRef
+                                            ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PostinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
                                             Impersonate="no"))
