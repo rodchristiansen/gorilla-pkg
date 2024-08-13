@@ -168,11 +168,14 @@ def generate_wix_files(project_dir, config):
     install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFiles64Folder")
     management_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
 
+    feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
+
     # Create components for files
     files = get_files_from_payload(project_dir)
     for file in files:
         component = etree.SubElement(management_dir, "Component", Id=file["component_id"], Guid="*")
         etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
+        etree.SubElement(feature, "ComponentRef", Id=file["component_id"])  # Reference the component in the feature
 
     # Handle custom actions (e.g., postinstall script)
     actions = get_scripts(project_dir)
@@ -180,6 +183,7 @@ def generate_wix_files(project_dir, config):
         for script_type, action in actions.items():
             component = etree.SubElement(management_dir, "Component", Id=action['component_id'], Guid="*")
             etree.SubElement(component, "File", Id=f"File_{action['component_id']}", Source=action['script_path'], KeyPath="yes")
+            etree.SubElement(feature, "ComponentRef", Id=action['component_id'])  # Reference the script component in the feature
 
         # Add InstallExecuteSequence within Package
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
