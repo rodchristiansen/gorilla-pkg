@@ -167,7 +167,8 @@ def generate_wix_files(project_dir, config):
     
     current_dir = root_dir
     for part in Path(install_path).parts:
-        dir_id = f"dir_{part.replace(' ', '_')}"  # Unique Id for each directory
+        sanitized_part = part.replace(":", "").replace("\\", "").replace(" ", "_")
+        dir_id = f"dir_{sanitized_part}"  # Legal Id for each directory
         current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=part)
     
     install_folder = current_dir  # This will be the INSTALLFOLDER in WiX
@@ -180,7 +181,7 @@ def generate_wix_files(project_dir, config):
     fragment = etree.SubElement(wix, "Fragment")
     placeholder_action_id = "DoNothing"
     placeholder_action = etree.SubElement(fragment, "CustomAction", Id=placeholder_action_id, 
-                                          Execute="immediate", Return="check", Script="vbscript", 
+                                          Execute="immediate", Return="check", ExeCommand="echo NoOp", 
                                           Impersonate="no")
     
     # Handle scripts (if any)
@@ -223,7 +224,8 @@ def generate_wix_files(project_dir, config):
             relative_path = file_path.relative_to(payload_dir)
             dir_element = install_folder
             for part in relative_path.parent.parts:
-                dir_element = etree.SubElement(dir_element, "Directory", Id=part, Name=part)
+                sanitized_part = part.replace(":", "").replace("\\", "").replace(" ", "_")
+                dir_element = etree.SubElement(dir_element, "Directory", Id=sanitized_part, Name=part)
             component_id = f"Component_{file_path.stem}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             etree.SubElement(component, "File", Id=f"File_{file_path.stem}", Source=str(file_path), KeyPath="yes")
