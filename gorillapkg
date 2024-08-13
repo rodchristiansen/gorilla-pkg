@@ -233,8 +233,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'preinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="RunPreInstallScript", 
-                                            FileRef="File_preinstall",
-                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_preinstall]&quot;", 
+                                            FileRef="File_PreinstallScript",
+                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_PreinstallScript]&quot;", 
                                             Execute="deferred",
                                             Return="check",
                                             Impersonate="no"))
@@ -242,8 +242,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="RunPostInstallScript", 
-                                            FileRef="File_postinstall",
-                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_postinstall]&quot;", 
+                                            FileRef="File_PostinstallScript",
+                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_PostinstallScript]&quot;", 
                                             Execute="deferred",
                                             Return="check",
                                             Impersonate="no"))
