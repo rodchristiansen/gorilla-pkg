@@ -147,28 +147,22 @@ def generate_wix_files(project_dir, config):
     NSMAP = {None: NS_WIX}
     wix = etree.Element("Wix", nsmap=NSMAP)
 
-    product_code, upgrade_code = generate_guids(config['product']['identifier'])
-
-    product_attrs = {
-        "Id": product_code,
+    package_attrs = {
         "Name": config['product']['name'],
-        "Language": "1033",
         "Version": parse_version(config['product']['version']),
         "Manufacturer": config['product']['manufacturer'],
-        "UpgradeCode": upgrade_code
+        "UpgradeCode": generate_guids(config['product']['identifier'])[1],
+        "InstallerVersion": "500",           # Added back
+        "Compressed": "yes",                 # Added back
+        "InstallScope": "perMachine"         # Added back
     }
-    product = etree.SubElement(wix, "Product", **product_attrs)
+    package = etree.SubElement(wix, "Package", **package_attrs)
 
-    package_attrs = {
-        "InstallerVersion": "500",
-        "Compressed": "yes",
-        "InstallScope": "perMachine"
-    }
-    etree.SubElement(product, "Package", **package_attrs)
+    # Define the media element
+    etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    etree.SubElement(product, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
-
-    target_dir = etree.SubElement(product, "Directory", Id="TARGETDIR", Name="SourceDir")
+    # Directory structure
+    target_dir = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
     program_files = etree.SubElement(target_dir, "Directory", Id="ProgramFiles64Folder")
     install_folder = etree.SubElement(program_files, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
 
@@ -178,16 +172,17 @@ def generate_wix_files(project_dir, config):
         component = etree.SubElement(install_folder, "Component", Id=file["component_id"], Guid="*")
         etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
 
-    feature = etree.SubElement(product, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
+    # Feature that includes all components
+    feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
     for file in files:
         etree.SubElement(feature, "ComponentRef", Id=file["component_id"])
 
     # Handle custom actions
     actions = get_scripts(project_dir)
     
-    # InstallExecuteSequence within Product
+    # Add InstallExecuteSequence within Package
     if actions:
-        install_execute_sequence = etree.SubElement(product, "InstallExecuteSequence")
+        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
         for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
             install_execute_sequence.append(action)
 
