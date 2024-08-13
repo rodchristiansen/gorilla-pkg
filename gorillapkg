@@ -240,7 +240,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
         custom_action = etree.Element(f"{{{namespace}}}CustomAction", 
                                       Id=custom_action_id, 
                                       BinaryRef=binary_id,
-                                      ExeCommand=f"{powershell_path} -ExecutionPolicy Bypass -File [#File_{script_type.capitalize()}Script]", 
+                                      ExeCommand=f"{powershell_path} -ExecutionPolicy Bypass -File [TEMPDIR]script.ps1", 
                                       Execute="deferred",
                                       Return="check",
                                       Impersonate="no")
