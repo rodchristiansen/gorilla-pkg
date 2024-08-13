@@ -183,6 +183,7 @@ def generate_wix_files(project_dir, config):
             # Create components to manage the scripts
             component = etree.SubElement(fragment, "Component", Directory="TARGETDIR", Id=component_id)
             etree.SubElement(component, "File", Id=file_id, Source=script_path, KeyPath="yes")
+            etree.SubElement(feature, "ComponentRef", Id=component_id)
             
             # Create CustomAction elements to execute the extracted script
             etree.SubElement(fragment, "CustomAction", Id=custom_action_id,
