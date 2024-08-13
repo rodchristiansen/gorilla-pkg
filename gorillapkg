@@ -276,7 +276,7 @@ def generate_install_execute_sequence(actions, postinstall_action, namespace):
         sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PreInstallAction", Before="InstallInitialize"))
 
     if 'postinstall' in actions:
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PostInstallAction", After="InstallFinalize"))
+        sequence_elements.append(etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", After="InstallFiles"))
 
     if postinstall_action == 'logout':
         sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="ForceLogout", After="InstallFinalize"))
