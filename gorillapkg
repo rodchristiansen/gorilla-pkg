@@ -234,12 +234,12 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     # Iterate over actions and create a CustomAction element for each script
     for script_type, action in actions.items():
         custom_action_id = f"Run{script_type.capitalize()}Script"
-        binary_id = f"Binary_{script_type.capitalize()}Script"
+        binary_id = f"Bin_{script_type.capitalize()}Scr"  # Shortened ID to avoid length issues
 
         # Create the CustomAction element
         custom_action = etree.Element(f"{{{namespace}}}CustomAction", 
                                       Id=custom_action_id, 
-                                      BinaryKey=binary_id,
+                                      BinaryRef=binary_id,
                                       ExeCommand=f"{powershell_path} -ExecutionPolicy Bypass -File [#File_{script_type.capitalize()}Script]", 
                                       Execute="deferred",
                                       Return="check",
@@ -267,7 +267,6 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Impersonate="no"))
 
     return custom_actions
-
 
 def generate_install_execute_sequence(actions, postinstall_action, namespace):
     sequence_elements = []
