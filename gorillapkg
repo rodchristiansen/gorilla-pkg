@@ -165,23 +165,40 @@ def generate_wix_files(project_dir, config):
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
     # Use StandardDirectory instead of defining standard directories
-    install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFiles64Folder")
-    management_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
+    root_dir = etree.SubElement(package, "StandardDirectory", Id="ProgramFiles64Folder")
+    install_folder = etree.SubElement(root_dir, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
 
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
     # Create components for files
-    files = get_files_from_payload(project_dir)
-    for file in files:
-        component = etree.SubElement(management_dir, "Component", Id=file["component_id"], Guid="*")
-        file_element = etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
-        etree.SubElement(feature, "ComponentRef", Id=file["component_id"])  # Reference the component in the feature
+    payload_dir = Path(project_dir) / "payload"
+    components = []
+
+    def create_directory_element(parent, path):
+        parts = path.parts
+        current = parent
+        for i, part in enumerate(parts):
+            dir_id = "_".join(parts[:i + 1]).replace(".", "_")
+            if not any(d.attrib.get("Id") == dir_id for d in current):
+                current = etree.SubElement(current, "Directory", Id=dir_id, Name=part)
+            else:
+                current = next(d for d in current if d.attrib.get("Id") == dir_id)
+        return current
+
+    for file_path in payload_dir.rglob('*'):
+        if file_path.is_file():
+            relative_path = file_path.relative_to(payload_dir)
+            dir_element = create_directory_element(install_folder, relative_path.parent)
+            component = etree.SubElement(dir_element, "Component", Id=f"Component_{relative_path.stem}", Guid="*")
+            file_element = etree.SubElement(component, "File", Id=f"File_{relative_path.stem}", Source=str(file_path), KeyPath="yes")
+            components.append(component)
+            etree.SubElement(feature, "ComponentRef", Id=f"Component_{relative_path.stem}")
 
     # Handle custom actions (e.g., preinstall and postinstall scripts)
     actions = get_scripts(project_dir)
     if actions:
         for script_type, action in actions.items():
-            component = etree.SubElement(management_dir, "Component", Id=f"Component_{script_type.capitalize()}Script", Guid="*")
+            component = etree.SubElement(install_folder, "Component", Id=f"Component_{script_type.capitalize()}Script", Guid="*")
             file_element = etree.SubElement(component, "File", Id=f"File_{script_type.capitalize()}Script", Source=action['script_path'], KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=f"Component_{script_type.capitalize()}Script")  # Reference the script component in the feature
 
