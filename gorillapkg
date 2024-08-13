@@ -161,50 +161,53 @@ def generate_wix_files(project_dir, config):
     package = etree.SubElement(wix, "Package", **package_attrs)
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the root directory and installation folder
-    root_dir = etree.SubElement(package, "StandardDirectory", Id="ProgramFiles64Folder")
-    install_folder = etree.SubElement(root_dir, "Directory", Id="INSTALLFOLDER", Name=config['install_path'].split(os.sep)[-1])
+    # Define the custom directory structure based on the install_path
+    install_path = config['install_path']
+    root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
+    
+    current_dir = root_dir
+    for part in Path(install_path).parts:
+        dir_id = f"dir_{part.replace(' ', '_')}"  # Unique Id for each directory
+        current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=part)
+    
+    install_folder = current_dir  # This will be the INSTALLFOLDER in WiX
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Create fragments to hold script actions if necessary
+    # Handle scripts (if any)
     actions = get_scripts(project_dir)
     if actions:
         fragment = etree.SubElement(wix, "Fragment")
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-
+    
         # Process each script and create appropriate elements
         for script_type, script_path in actions.items():
-            component_id = f"Component_{script_type.capitalize()}Script"
-            file_id = f"File_{script_type.capitalize()}Script"
+            binary_id = f"Binary_{script_type.capitalize()}Script"
             copy_action_id = f"Copy{script_type.capitalize()}ScriptToTemp"
             run_action_id = f"Run{script_type.capitalize()}Script"
             generated_guid = str(uuid.uuid4())
-
-            # Create components to manage the scripts, ensuring they're in a proper directory
-            script_component = etree.SubElement(fragment, "Component", Directory="INSTALLFOLDER", Id=component_id, Guid=generated_guid)
-            etree.SubElement(script_component, "File", Id=file_id, Source=script_path, KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=component_id)  # Add Component to the Feature
-
+    
+            # Embed the script as a Binary in the MSI
+            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=script_path)
+    
             # Custom action to copy the script to %TEMP%
             temp_script_path = f"%TEMP%\\{script_type}.ps1"
-            copy_command = f'cmd /c copy "[#{file_id}]" "{temp_script_path}"'
+            copy_command = f'cmd /c copy "[#{binary_id}]" "{temp_script_path}"'
             
             # Adding custom action for copying the script
             copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                                           Directory="INSTALLFOLDER",
+                                           Directory="TARGETDIR",
                                            ExeCommand=copy_command,
                                            Execute="deferred", Return="check", Impersonate="no")
             
             # Adding custom action for running the script
             run_command = f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"'
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          Directory="INSTALLFOLDER",
+                                          Directory="TARGETDIR",
                                           ExeCommand=run_command,
                                           Execute="deferred", Return="check", Impersonate="no")
-
-
+    
             # Setting the right sequence based on script type
             if script_type == 'preinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
