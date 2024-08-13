@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import re
 import subprocess
 import sys
 import yaml
@@ -186,15 +185,17 @@ def generate_wix_files(project_dir, config):
     # Handle custom actions
     actions = get_scripts(project_dir)
     
-    # Add custom actions directly into Product
+    # Add InstallExecuteSequence to Product
     if actions:
         install_execute_sequence = etree.SubElement(product, "InstallExecuteSequence")
         for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
             install_execute_sequence.append(action)
 
-        # Correctly define CustomAction references
+    # Add CustomAction references inside a Fragment
+    if actions:
+        fragment = etree.SubElement(wix, "Fragment")
         for action in generate_custom_actions_wxs(actions, config.get("postinstall_action", "none"), NS_WIX):
-            product.append(action)
+            fragment.append(action)
 
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
@@ -213,25 +214,30 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Id="PostInstallAction", 
                                             FileRef="File_Component_PostInstallScript",  # Correcting the attribute
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_Component_PostInstallScript]", 
-                                            Return="check"))
+                                            Return="check",
+                                            Execute="deferred",
+                                            Impersonate="no"))
     
     if postinstall_action == 'logout':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="ForceLogout", 
                                             ExeCommand="shutdown.exe /l /f", 
                                             Return="check", 
-                                            Directory="SystemFolder"))
+                                            Directory="SystemFolder",
+                                            Execute="deferred",
+                                            Impersonate="no"))
     
     if postinstall_action == 'restart':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="ForceRestart", 
                                             ExeCommand="shutdown.exe /r /f /t 00", 
                                             Return="check", 
-                                            Directory="SystemFolder"))
+                                            Directory="SystemFolder",
+                                            Execute="deferred",
+                                            Impersonate="no"))
 
     return custom_actions
 
-    
 def generate_install_execute_sequence(actions, postinstall_action, namespace):
     sequence_elements = []
 
@@ -256,7 +262,6 @@ def generate_install_execute_sequence(actions, postinstall_action, namespace):
         sequence_elements.append(restart)
 
     return sequence_elements
-
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
@@ -285,21 +290,32 @@ def verify_wxs_files(project_dir):
         tree = etree.fromstring(content)
         NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
         
-        # Verify essential elements exist
-        required_tags = [
+        # Verify essential elements exist in the Product element
+        required_product_tags = [
             f"{{{NS_WIX}}}Package",
             f"{{{NS_WIX}}}Directory",
             f"{{{NS_WIX}}}Component",
             f"{{{NS_WIX}}}ComponentRef"
         ]
 
-        missing_tags = []
-        for tag in required_tags:
+        missing_product_tags = []
+        for tag in required_product_tags:
             if not tree.findall(f".//{tag}"):
-                missing_tags.append(tag)
+                missing_product_tags.append(tag)
 
-        if missing_tags:
-            log(f"Package.wxs is missing necessary tags: {missing_tags}", error=True)
+        if missing_product_tags:
+            log(f"Package.wxs is missing necessary tags in Product: {missing_product_tags}", error=True)
+            return False
+        
+        # Verify the existence of Fragment and CustomAction elements
+        fragment = tree.find(f".//{{{NS_WIX}}}Fragment")
+        if fragment is None:
+            log(f"Package.wxs is missing the Fragment element.", error=True)
+            return False
+        
+        custom_action = fragment.find(f".//{{{NS_WIX}}}CustomAction")
+        if custom_action is None:
+            log(f"Package.wxs is missing the CustomAction element inside Fragment.", error=True)
             return False
 
     except Exception as e:
