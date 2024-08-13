@@ -77,7 +77,11 @@ def get_scripts(project_dir):
         for ext in ['.bat', '.ps1']:
             script_path = scripts_dir / f"{script_type}{ext}"
             if script_path.exists():
-                actions[script_type] = str(script_path)
+                component_id = f"Component_{script_type.capitalize()}Script"
+                actions[script_type] = {
+                    "script_path": str(script_path),
+                    "component_id": component_id
+                }
                 log(f"Found {script_type} script: {script_path}")
 
     return actions
@@ -170,23 +174,20 @@ def generate_wix_files(project_dir, config):
         component = etree.SubElement(management_dir, "Component", Id=file["component_id"], Guid="*")
         etree.SubElement(component, "File", Id=f"File_{file['component_id']}", Source=file["source"], KeyPath="yes")
 
-    # Feature that includes all components
-    feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
-    for file in files:
-        etree.SubElement(feature, "ComponentRef", Id=file["component_id"])
-
-    # Handle custom actions
+    # Handle custom actions (e.g., postinstall script)
     actions = get_scripts(project_dir)
-
-    # Add InstallExecuteSequence within Package
     if actions:
+        for script_type, action in actions.items():
+            component = etree.SubElement(management_dir, "Component", Id=action['component_id'], Guid="*")
+            etree.SubElement(component, "File", Id=f"File_{action['component_id']}", Source=action['script_path'], KeyPath="yes")
+
+        # Add InstallExecuteSequence within Package
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
         for action in generate_install_execute_sequence(actions, config.get("postinstall_action", "none"), NS_WIX):
             install_execute_sequence.append(action)
 
-    # Custom Actions in a Fragment
-    fragment = etree.SubElement(wix, "Fragment")
-    if actions:
+        # Custom Actions in a Fragment
+        fragment = etree.SubElement(wix, "Fragment")
         for action in generate_custom_actions_wxs(actions, config.get("postinstall_action", "none"), NS_WIX):
             fragment.append(action)
 
