@@ -208,10 +208,19 @@ def generate_wix_files(project_dir, config):
 def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     custom_actions = []
     
+    if 'preinstall' in actions:
+        custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
+                                            Id="PreInstallAction", 
+                                            FileRef="File_PreinstallScript",
+                                            ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PreinstallScript]", 
+                                            Return="check",
+                                            Execute="deferred",
+                                            Impersonate="no"))
+    
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="PostInstallAction", 
-                                            FileRef="File_PostinstallScript",  # Corrected FileRef
+                                            FileRef="File_PostinstallScript",
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PostinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
@@ -311,7 +320,7 @@ def verify_wxs_files(project_dir):
 def sign_msi(msi_file, identity):
     log(f"Signing MSI package {msi_file} with identity {identity}")
     sign_command = f'signtool sign /n "{identity}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "{msi_file}"'
-    success, output = run_command(shlex.quote(sign_command))
+    success, output = run_command(sign_command)
     if not success:
         log("Failed to sign MSI package.", error=True)
         return False
