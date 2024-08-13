@@ -189,16 +189,21 @@ def generate_wix_files(project_dir, config):
 
             # Custom action to copy the script to %TEMP%
             temp_script_path = f"%TEMP%\\{script_type}.ps1"
-            etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                             Directory="INSTALLFOLDER",
-                             ExeCommand=f'cmd /c copy "[#{file_id}]" "{temp_script_path}"',
-                             Execute="deferred", Return="check", Impersonate="no")
+            copy_command = f'cmd /c copy "[#{file_id}]" "{temp_script_path}"'
+            
+            # Adding custom action for copying the script
+            copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
+                                           Directory="INSTALLFOLDER",
+                                           ExeCommand=copy_command,
+                                           Execute="deferred", Return="check", Impersonate="no")
+            
+            # Adding custom action for running the script
+            run_command = f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"'
+            run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
+                                          Directory="INSTALLFOLDER",
+                                          ExeCommand=run_command,
+                                          Execute="deferred", Return="check", Impersonate="no")
 
-            # Custom action to execute the script from %TEMP%
-            etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                             Directory="INSTALLFOLDER",
-                             ExeCommand=f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"',
-                             Execute="deferred", Return="check", Impersonate="no")
 
             # Setting the right sequence based on script type
             if script_type == 'preinstall':
