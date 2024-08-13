@@ -176,17 +176,18 @@ def generate_wix_files(project_dir, config):
     
         # Process each script and create appropriate elements
         for script_type, script_path in actions.items():
+            component_id = f"Component_{script_type.capitalize()}Script"
+            file_id = f"File_{script_type.capitalize()}Script"
             custom_action_id = f"Run{script_type.capitalize()}Script"
     
-            # Copy the script to a temporary location during installation
-            temp_script_path = f"%TEMP%\\{script_type}.ps1"
-            etree.SubElement(fragment, "Component", Directory="TARGETDIR", Id=f"Component_{script_type.capitalize()}Script")
-            etree.SubElement(fragment, "File", Id=f"File_{script_type.capitalize()}Script", Source=script_path, KeyPath="yes")
+            # Create components to manage the scripts
+            component = etree.SubElement(fragment, "Component", Directory="TARGETDIR", Id=component_id)
+            etree.SubElement(component, "File", Id=file_id, Source=script_path, KeyPath="yes")
             
             # Create CustomAction elements to execute the extracted script
             etree.SubElement(fragment, "CustomAction", Id=custom_action_id,
-                             FileKey=f"File_{script_type.capitalize()}Script",
-                             ExeCommand=f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"',
+                             FileRef=file_id,
+                             ExeCommand=f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "[#{file_id}]"',
                              Execute="deferred", Return="check", Impersonate="no")
     
             # Setting the right sequence based on script type
