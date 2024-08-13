@@ -190,7 +190,7 @@ def generate_wix_files(project_dir, config):
         if 'preinstall' in actions:
             etree.SubElement(install_execute_sequence, "Custom", Action="PreInstallAction", Before="InstallInitialize")
         if 'postinstall' in actions:
-            etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", After="InstallFinalize")
+            etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", Before="InstallFinalize")
         if config.get("postinstall_action") == 'logout':
             etree.SubElement(install_execute_sequence, "Custom", Action="ForceLogout", After="InstallFinalize")
         if config.get("postinstall_action") == 'restart':
