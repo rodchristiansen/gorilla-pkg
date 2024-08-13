@@ -215,7 +215,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PreinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
-                                            Impersonate="no"))
+                                            Impersonate="no",
+                                            Before="InstallInitialize"))
     
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
@@ -224,7 +225,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PostinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
-                                            Impersonate="no"))
+                                            Impersonate="no",
+                                            After="InstallFinalize"))
     
     if postinstall_action == 'logout':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
@@ -233,7 +235,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Return="check", 
                                             Directory="SystemFolder",
                                             Execute="deferred",
-                                            Impersonate="no"))
+                                            Impersonate="no",
+                                            After="InstallFinalize"))
     
     if postinstall_action == 'restart':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
@@ -242,7 +245,8 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Return="check", 
                                             Directory="SystemFolder",
                                             Execute="deferred",
-                                            Impersonate="no"))
+                                            Impersonate="no",
+                                            After="InstallFinalize"))
 
     return custom_actions
 
