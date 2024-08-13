@@ -74,15 +74,14 @@ def get_scripts(project_dir):
     log(f"Checking for scripts in {scripts_dir}")
 
     for script_type in ['preinstall', 'postinstall']:
-        for ext in ['.bat', '.ps1']:
-            script_path = scripts_dir / f"{script_type}{ext}"
-            if script_path.exists():
-                component_id = f"Component_{script_type.capitalize()}Script"
-                actions[script_type] = {
-                    "script_path": str(script_path),
-                    "component_id": component_id
-                }
-                log(f"Found {script_type} script: {script_path}")
+        script_path = scripts_dir / f"{script_type}.ps1"
+        if script_path.exists():
+            component_id = f"Component_{script_type.capitalize()}Script"
+            actions[script_type] = {
+                "script_path": str(script_path),
+                "component_id": component_id
+            }
+            log(f"Found {script_type} script: {script_path}")
 
     return actions
 
@@ -207,7 +206,7 @@ def generate_wix_files(project_dir, config):
         if 'preinstall' in actions:
             etree.SubElement(install_execute_sequence, "Custom", Action="PreInstallAction", Before="InstallInitialize")
         if 'postinstall' in actions:
-            etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", Before="InstallFinalize")
+            etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", After="InstallFiles")
         if config.get("postinstall_action") == 'logout':
             etree.SubElement(install_execute_sequence, "Custom", Action="ForceLogout", After="InstallFinalize")
         if config.get("postinstall_action") == 'restart':
@@ -234,7 +233,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'preinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="PreInstallAction", 
-                                            FileRef="File_PreinstallScript",
+                                            FileKey="File_PreinstallScript",
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PreinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
@@ -243,7 +242,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     if 'postinstall' in actions:
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="PostInstallAction", 
-                                            FileRef="File_PostinstallScript",
+                                            FileKey="File_PostinstallScript",
                                             ExeCommand="[SystemFolder]WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -File [#File_PostinstallScript]", 
                                             Return="check",
                                             Execute="deferred",
@@ -276,7 +275,7 @@ def generate_install_execute_sequence(actions, postinstall_action, namespace):
         sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PreInstallAction", Before="InstallInitialize"))
 
     if 'postinstall' in actions:
-        sequence_elements.append(etree.SubElement(install_execute_sequence, "Custom", Action="PostInstallAction", After="InstallFiles"))
+        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PostInstallAction", After="InstallFiles"))
 
     if postinstall_action == 'logout':
         sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="ForceLogout", After="InstallFinalize"))
