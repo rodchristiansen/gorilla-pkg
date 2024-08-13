@@ -76,11 +76,7 @@ def get_scripts(project_dir):
     for script_type in ['preinstall', 'postinstall']:
         script_path = scripts_dir / f"{script_type}.ps1"
         if script_path.exists():
-            component_id = f"Component_{script_type.capitalize()}Script"
-            actions[script_type] = {
-                "script_path": str(script_path),
-                "component_id": component_id
-            }
+            actions[script_type] = str(script_path)
             log(f"Found {script_type} script: {script_path}")
 
     return actions
@@ -145,6 +141,7 @@ def parse_version(version_str):
         log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD' or 'X.Y.Z'.", error=True)
         sys.exit(1)
 
+# Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     NSMAP = {None: NS_WIX}
@@ -169,7 +166,7 @@ def generate_wix_files(project_dir, config):
 
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Create components for files
+    # Create components for files in payload
     payload_dir = Path(project_dir) / "payload"
     components = []
 
@@ -193,30 +190,31 @@ def generate_wix_files(project_dir, config):
             components.append(component)
             etree.SubElement(feature, "ComponentRef", Id=f"Component_{relative_path.stem}")
 
-    # Handle custom actions (e.g., preinstall and postinstall scripts)
+    # Handle custom actions for preinstall and postinstall scripts
     actions = get_scripts(project_dir)
     if actions:
-        for script_type, action in actions.items():
-            component = etree.SubElement(install_folder, "Component", Id=f"Component_{script_type.capitalize()}Script", Guid="*")
-            file_element = etree.SubElement(component, "File", Id=f"File_{script_type.capitalize()}Script", Source=action['script_path'], KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=f"Component_{script_type.capitalize()}Script")  # Reference the script component in the feature
-
-        # Add InstallExecuteSequence within Package
-        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-        if 'preinstall' in actions:
-            etree.SubElement(install_execute_sequence, "Custom", Action="RunPreInstallScript", Before="InstallInitialize")
-        if 'postinstall' in actions:
-            etree.SubElement(install_execute_sequence, "Custom", Action="RunPostInstallScript", After="InstallFiles")
-        if config.get("postinstall_action") == 'logout':
-            etree.SubElement(install_execute_sequence, "Custom", Action="ForceLogout", After="InstallFinalize")
-        if config.get("postinstall_action") == 'restart':
-            etree.SubElement(install_execute_sequence, "Custom", Action="ForceRestart", After="InstallFinalize")
-
-        # Custom Actions in a Fragment
         fragment = etree.SubElement(wix, "Fragment")
-        for action in generate_custom_actions_wxs(actions, config.get("postinstall_action", "none"), NS_WIX):
-            fragment.append(action)
+        binary_elements = []
+        custom_action_elements = []
 
+        for script_type, script_path in actions.items():
+            binary_id = f"Binary_{script_type.capitalize()}Script"
+            custom_action_id = f"Run{script_type.capitalize()}Script"
+            binary = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=script_path)
+            custom_action = etree.SubElement(fragment, "CustomAction", 
+                                             Id=custom_action_id, 
+                                             BinaryKey=binary_id,
+                                             ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TEMPDIR]script.ps1",
+                                             Execute="deferred", 
+                                             Return="check", 
+                                             Impersonate="no")
+            binary_elements.append(binary)
+            custom_action_elements.append(custom_action)
+            install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
+            etree.SubElement(install_execute_sequence, "Custom", Action=custom_action_id, After="InstallFiles")
+            etree.SubElement(feature, "ComponentRef", Id=custom_action_id)
+
+    # Write the WiX XML file
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,24 +228,26 @@ def generate_wix_files(project_dir, config):
 def generate_custom_actions_wxs(actions, postinstall_action, namespace):
     custom_actions = []
     
-    if 'preinstall' in actions:
-        custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
-                                            Id="RunPreInstallScript", 
-                                            FileRef="File_PreinstallScript",
-                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_PreinstallScript]&quot;", 
-                                            Execute="deferred",
-                                            Return="check",
-                                            Impersonate="no"))
+    # Path to the 64-bit PowerShell executable
+    powershell_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
     
-    if 'postinstall' in actions:
-        custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
-                                            Id="RunPostInstallScript", 
-                                            FileRef="File_PostinstallScript",
-                                            ExeCommand="powershell.exe -ExecutionPolicy Bypass -File &quot;[#File_PostinstallScript]&quot;", 
-                                            Execute="deferred",
-                                            Return="check",
-                                            Impersonate="no"))
+    # Iterate over actions and create a CustomAction element for each script
+    for script_type, action in actions.items():
+        custom_action_id = f"Run{script_type.capitalize()}Script"
+        binary_id = f"Binary_{script_type.capitalize()}Script"
 
+        # Create the CustomAction element
+        custom_action = etree.Element(f"{{{namespace}}}CustomAction", 
+                                      Id=custom_action_id, 
+                                      BinaryKey=binary_id,
+                                      ExeCommand=f"{powershell_path} -ExecutionPolicy Bypass -File [#File_{script_type.capitalize()}Script]", 
+                                      Execute="deferred",
+                                      Return="check",
+                                      Impersonate="no")
+        
+        custom_actions.append(custom_action)
+
+    # Handle special actions like logout or restart
     if postinstall_action == 'logout':
         custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
                                             Id="ForceLogout", 
@@ -267,6 +267,7 @@ def generate_custom_actions_wxs(actions, postinstall_action, namespace):
                                             Impersonate="no"))
 
     return custom_actions
+
 
 def generate_install_execute_sequence(actions, postinstall_action, namespace):
     sequence_elements = []
