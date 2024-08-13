@@ -194,8 +194,6 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     if actions:
         fragment = etree.SubElement(wix, "Fragment")
-        binary_elements = []
-        custom_action_elements = []
 
         for script_type, script_path in actions.items():
             binary_id = f"Binary_{script_type.capitalize()}Script"
@@ -204,15 +202,17 @@ def generate_wix_files(project_dir, config):
             custom_action = etree.SubElement(fragment, "CustomAction", 
                                              Id=custom_action_id, 
                                              BinaryKey=binary_id,
-                                             ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TEMPDIR]script.ps1",
+                                             ExeCommand=r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File [#Binary_{script_type.capitalize()}Script]",
                                              Execute="deferred", 
                                              Return="check", 
                                              Impersonate="no")
-            binary_elements.append(binary)
-            custom_action_elements.append(custom_action)
+            
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-            etree.SubElement(install_execute_sequence, "Custom", Action=custom_action_id, After="InstallFiles")
-            etree.SubElement(feature, "ComponentRef", Id=custom_action_id)
+            if script_type == 'preinstall':
+                etree.SubElement(install_execute_sequence, "Custom", Action=custom_action_id, Before="InstallInitialize")
+            elif script_type == 'postinstall':
+                etree.SubElement(install_execute_sequence, "Custom", Action=custom_action_id, After="InstallFiles")
+            etree.SubElement(feature, "ComponentRef", Id=binary_id)
 
     # Write the WiX XML file
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
