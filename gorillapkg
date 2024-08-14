@@ -396,24 +396,6 @@ def build_msi(project_dir, wix_path, output_dir=None):
     
     log(f"MSI package created successfully at {msi_file}.")
     
-    # Embed preinstall and postinstall scripts as binaries
-    preinstall_script = Path(project_dir) / "scripts" / "preinstall.ps1"
-    postinstall_script = Path(project_dir) / "scripts" / "postinstall.ps1"
-    
-    if preinstall_script.exists():
-        command = f'"{wix_exe}" binary "{preinstall_script}" -o "{src_dir / "Bin_Preinstall.wixobj"}"'
-        run_command(command)
-        log("Preinstall script embedded successfully.")
-    else:
-        log("Preinstall script not found, skipping.")
-    
-    if postinstall_script.exists():
-        command = f'"{wix_exe}" binary "{postinstall_script}" -o "{src_dir / "Bin_Postinstall.wixobj"}"'
-        run_command(command)
-        log("Postinstall script embedded successfully.")
-    else:
-        log("Postinstall script not found, skipping.")
-    
     # Check if 'identity' key is present in build-info.yaml for signing
     config = read_build_info(project_dir)
     if 'identity' in config:
