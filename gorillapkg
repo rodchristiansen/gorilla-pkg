@@ -288,7 +288,7 @@ def generate_wix_files(project_dir, config):
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
-    output_path = Path(project_dir) / "src" / "Package.wxs"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'wb') as file:
         file.write(xml_str)
     
