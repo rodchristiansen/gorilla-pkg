@@ -145,7 +145,6 @@ def parse_version(version_str):
 def get_standard_directories():
     username = os.getlogin()
     return {
-        "C:\\": "TARGETDIR",
         "C:\\Program Files": "ProgramFilesFolder",
         "C:\\Program Files (x86)": "ProgramFiles6432Folder",
         "C:\\Program Files\\Common Files": "CommonFilesFolder",
@@ -231,15 +230,12 @@ def generate_wix_files(project_dir, config):
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
     else:
-        # Start from the TARGETDIR as a fallback
-        install_folder = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
-        current_dir = install_folder
+        # Directly use INSTALLFOLDER under ProgramFilesFolder if no standard directory matches
+        install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
+        current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=f"{config['product']['manufacturer']} {config['product']['name']}")
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-    
-    # Reference INSTALLFOLDER for consistency
-    current_dir.set("Id", "INSTALLFOLDER")
     
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
