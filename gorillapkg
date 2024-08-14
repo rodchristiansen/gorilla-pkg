@@ -9,8 +9,6 @@ import shutil
 from lxml import etree
 from pathlib import Path
 import base64
-script_data_b64 = base64.b64encode(script_data).decode('ascii')
-binary_element.text = script_data_b64
 
 # Define constants
 BUILD_INFO_FILE = "build-info.yaml"
@@ -251,12 +249,15 @@ def generate_wix_files(project_dir, config):
         # Load the content of the script file
         with open(script_path, 'rb') as file:
             script_data = file.read()
-        
-        # Binary element with script data
+    
+        # Encode script data in base64
+        script_data_b64 = base64.b64encode(script_data).decode('ascii')
+    
+        # Binary element with base64 encoded script data
         binary_id = f"Bin_{script_type.capitalize()}"
         binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
-        binary_element.text = etree.CDATA(script_data)  # Embed the script data
-
+        binary_element.text = script_data_b64  # Embed the base64 encoded script data
+    
         # Custom action to run the script
         run_action_id = f"Run{script_type.capitalize()}"
         run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
