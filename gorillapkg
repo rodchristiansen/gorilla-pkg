@@ -370,7 +370,7 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
-# Update the build_msi function to include signing
+# Update the build_msi function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
@@ -387,7 +387,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
-    # Command to use Package.wxs for building MSI with verbose logging
+    # Verbose command to use Package.wxs for building MSI
     command = f'"{wix_exe}" build -v -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
@@ -396,30 +396,30 @@ def build_msi(project_dir, wix_path, output_dir=None):
     
     log(f"MSI package created successfully at {msi_file}.")
     
-    # Check if 'identity' key is present in build-info.yaml for signing
-    config = read_build_info(project_dir)
-    if 'identity' in config:
-        if not sign_msi(msi_file, config['identity']):
-            log("MSI signing process failed.", error=True)
-            return
-    
     # Embed preinstall and postinstall scripts as binaries
     preinstall_script = Path(project_dir) / "scripts" / "preinstall.ps1"
     postinstall_script = Path(project_dir) / "scripts" / "postinstall.ps1"
     
     if preinstall_script.exists():
-        command = f'"{wix_exe}" candle "{preinstall_script}" -o "{src_dir / "Bin_Preinstall.wixobj"}"'
+        command = f'"{wix_exe}" binary "{preinstall_script}" -o "{src_dir / "Bin_Preinstall.wixobj"}"'
         run_command(command)
         log("Preinstall script embedded successfully.")
     else:
         log("Preinstall script not found, skipping.")
     
     if postinstall_script.exists():
-        command = f'"{wix_exe}" candle "{postinstall_script}" -o "{src_dir / "Bin_Postinstall.wixobj"}"'
+        command = f'"{wix_exe}" binary "{postinstall_script}" -o "{src_dir / "Bin_Postinstall.wixobj"}"'
         run_command(command)
         log("Postinstall script embedded successfully.")
     else:
         log("Postinstall script not found, skipping.")
+    
+    # Check if 'identity' key is present in build-info.yaml for signing
+    config = read_build_info(project_dir)
+    if 'identity' in config:
+        if not sign_msi(msi_file, config['identity']):
+            log("MSI signing process failed.", error=True)
+            return
     
     # Clean up the src directory and Package.wxs file after the build
     log(f"Cleaning up the src directory: {src_dir}")
