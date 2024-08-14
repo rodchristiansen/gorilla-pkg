@@ -252,30 +252,31 @@ def generate_wix_files(project_dir, config):
     
         # Process each script and create appropriate elements
         for script_type, script_path in actions.items():
-            binary_id = f"Binary_{script_type.capitalize()}Script"
-            copy_action_id = f"Copy{script_type.capitalize()}ScriptToTemp"
-            run_action_id = f"Run{script_type.capitalize()}Script"
-    
+            # Shorten the binary_id and action_ids to avoid WIX1000 warnings
+            binary_id = f"Bin_{script_type.capitalize()[:14]}"
+            copy_action_id = f"Copy{script_type.capitalize()[:14]}"
+            run_action_id = f"Run{script_type.capitalize()[:14]}"
+        
             # Embed the script as a Binary in the MSI
             binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_path))
-    
+        
             # Custom action to copy the script to %TEMP%
             temp_script_path = f"[TempFolder]{script_type}"
             copy_command = f"cmd /c copy \"[#{binary_id}]\" \"{temp_script_path}\""
-            
+        
             # Adding custom action for copying the script
             copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
                                            Directory="TempFolder",
                                            ExeCommand=copy_command,
                                            Execute="deferred", Return="check", Impersonate="no")
-            
+        
             # Adding custom action for running the script
             run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{temp_script_path}\""
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
                                           Directory="TempFolder",
                                           ExeCommand=run_command,
                                           Execute="deferred", Return="check", Impersonate="no")
-    
+        
             # Setting the right sequence based on script type
             if script_type == 'preinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
