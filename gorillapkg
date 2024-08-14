@@ -74,10 +74,12 @@ def get_scripts(project_dir):
     log(f"Checking for scripts in {scripts_dir}")
 
     for script_type in ['preinstall', 'postinstall']:
-        script_path = scripts_dir / f"{script_type}.ps1"
-        if script_path.exists():
-            actions[script_type] = str(script_path)
-            log(f"Found {script_type} script: {script_path}")
+        for extension in ['', '.ps1']:  # Check for both no extension and .ps1
+            script_path = scripts_dir / f"{script_type}{extension}"
+            if script_path.exists():
+                actions[script_type] = str(script_path)
+                log(f"Found {script_type} script: {script_path}")
+                break  # Stop checking if we've found a valid script
 
     return actions
 
@@ -102,12 +104,12 @@ def create_project_directory(project_dir):
     (project_path / "scripts").mkdir()
     default_build_info = {
         "product": {
-            "name": "MyApp",
+            "name": "PkgName",
             "version": "1.0.0",
             "manufacturer": "MyCompany",
             "identifier": "com.domain.winadmins.package_name"
         },
-        "install_path": "C:\\Program Files\\MyApp",
+        "install_path": "C:\\Program Files\\PkgName",
         "postinstall_action": "none"
     }
     with open(project_path / BUILD_INFO_FILE, 'w') as file:
@@ -258,7 +260,7 @@ def generate_wix_files(project_dir, config):
             binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_path))
     
             # Custom action to copy the script to %TEMP%
-            temp_script_path = f"[TempFolder]{script_type}.ps1"
+            temp_script_path = f"[TempFolder]{script_type}"
             copy_command = f"cmd /c copy \"[#{binary_id}]\" \"{temp_script_path}\""
             
             # Adding custom action for copying the script
@@ -303,7 +305,7 @@ def generate_wix_files(project_dir, config):
             component_id = f"Component_{uuid.uuid4().hex}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=component_id)  # Ensure each component is added to a feature
+            etree.SubElement(feature, "ComponentRef", Id=component_id)
 
     # Generate the XML and save to file
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -315,66 +317,6 @@ def generate_wix_files(project_dir, config):
     log("Generated XML:")
     log(xml_str.decode())
     return output_path
-
-def generate_custom_actions_wxs(actions, postinstall_action, namespace):
-    custom_actions = []
-    
-    # Path to the 64-bit PowerShell executable
-    powershell_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    
-    # Iterate over actions and create a CustomAction element for each script
-    for script_type, action in actions.items():
-        custom_action_id = f"Run{script_type.capitalize()}Script"
-        binary_id = f"Bin_{script_type.capitalize()}Scr"  # Shortened ID to avoid length issues
-
-        # Create the CustomAction element
-        custom_action = etree.Element(f"{{{namespace}}}CustomAction", 
-                                      Id=custom_action_id, 
-                                      BinaryRef=binary_id,
-                                      ExeCommand=f"{powershell_path} -ExecutionPolicy Bypass -File [#Bin_{script_type.capitalize()}Scr]",
-                                      Execute="deferred",
-                                      Return="check",
-                                      Impersonate="no")
-        
-        custom_actions.append(custom_action)
-
-    # Handle special actions like logout or restart
-    if postinstall_action == 'logout':
-        custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
-                                            Id="ForceLogout", 
-                                            ExeCommand="shutdown.exe /l /f", 
-                                            Return="check", 
-                                            Directory="SystemFolder",
-                                            Execute="deferred",
-                                            Impersonate="no"))
-    
-    if postinstall_action == 'restart':
-        custom_actions.append(etree.Element(f"{{{namespace}}}CustomAction", 
-                                            Id="ForceRestart", 
-                                            ExeCommand="shutdown.exe /r /f /t 00", 
-                                            Return="check", 
-                                            Directory="SystemFolder",
-                                            Execute="deferred",
-                                            Impersonate="no"))
-
-    return custom_actions
-
-def generate_install_execute_sequence(actions, postinstall_action, namespace):
-    sequence_elements = []
-
-    if 'preinstall' in actions:
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PreInstallAction", Before="InstallFiles"))
-
-    if 'postinstall' in actions:
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="PostInstallAction", After="InstallFiles"))
-
-    if postinstall_action == 'logout':
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="ForceLogout", After="InstallFinalize"))
-
-    if postinstall_action == 'restart':
-        sequence_elements.append(etree.Element(f"{{{namespace}}}Custom", Action="ForceRestart", After="InstallFinalize"))
-
-    return sequence_elements
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
