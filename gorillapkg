@@ -219,6 +219,7 @@ def generate_wix_files(project_dir, config):
                                InstallerVersion="500", 
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
+
     # Define the directory structure
     if directory_id:
         # Use the StandardDirectory element for predefined directories
@@ -288,7 +289,8 @@ def generate_wix_files(project_dir, config):
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(project_dir) / "src" / "Package.wxs"
+    output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists before writing
     with open(output_path, 'wb') as file:
         file.write(xml_str)
     
