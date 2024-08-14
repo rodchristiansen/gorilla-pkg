@@ -142,38 +142,41 @@ def parse_version(version_str):
         sys.exit(1)
 
 # Define directories for xml to map from yaml
-STANDARD_DIRECTORIES = {
-    "C:\\": "TARGETDIR",
-    "C:\\Program Files": "ProgramFilesFolder",
-    "C:\\Program Files (x86)": "ProgramFiles6432Folder",
-    "C:\\Program Files\\Common Files": "CommonFilesFolder",
-    "C:\\Program Files\\Common Files (x86)": "CommonFiles6432Folder",
-    "C:\\ProgramData": "CommonAppDataFolder",
-    "C:\\Windows": "WindowsFolder",
-    "C:\\Windows\\System32": "SystemFolder",
-    "C:\\Windows\\SysWOW64": "System64Folder",
-    "C:\\Windows\\Fonts": "FontsFolder",
-    f"C:\\Users\\{os.getlogin()}\\AppData\\Local": "LocalAppDataFolder",
-    f"C:\\Users\\{os.getlogin()}\\AppData\\Roaming": "AppDataFolder",
-    f"C:\\Users\\{os.getlogin()}\\Desktop": "DesktopFolder",
-    f"C:\\Users\\{os.getlogin()}\\Documents": "PersonalFolder",
-    f"C:\\Users\\{os.getlogin()}\\Favorites": "FavoritesFolder",
-    f"C:\\Users\\{os.getlogin()}\\My Pictures": "MyPicturesFolder",
-    f"C:\\Users\\{os.getlogin()}\\NetHood": "NetHoodFolder",
-    f"C:\\Users\\{os.getlogin()}\\PrintHood": "PrintHoodFolder",
-    f"C:\\Users\\{os.getlogin()}\\Recent": "RecentFolder",
-    f"C:\\Users\\{os.getlogin()}\\SendTo": "SendToFolder",
-    f"C:\\Users\\{os.getlogin()}\\Start Menu": "StartMenuFolder",
-    f"C:\\Users\\{os.getlogin()}\\Startup": "StartupFolder",
-    "C:\\Windows\\System": "System16Folder",
-    "C:\\Windows\\Temp": "TempFolder",
-    "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local": "LocalAppDataFolder",
-}
+def get_standard_directories():
+    username = os.getlogin()
+    return {
+        "C:\\": "TARGETDIR",
+        "C:\\Program Files": "ProgramFilesFolder",
+        "C:\\Program Files (x86)": "ProgramFiles6432Folder",
+        "C:\\Program Files\\Common Files": "CommonFilesFolder",
+        "C:\\Program Files\\Common Files (x86)": "CommonFiles6432Folder",
+        "C:\\ProgramData": "CommonAppDataFolder",
+        "C:\\Windows": "WindowsFolder",
+        "C:\\Windows\\System32": "SystemFolder",
+        "C:\\Windows\\SysWOW64": "System64Folder",
+        "C:\\Windows\\Fonts": "FontsFolder",
+        f"C:\\Users\\{username}\\AppData\\Local": "LocalAppDataFolder",
+        f"C:\\Users\\{username}\\AppData\\Roaming": "AppDataFolder",
+        f"C:\\Users\\{username}\\Desktop": "DesktopFolder",
+        f"C:\\Users\\{username}\\Documents": "PersonalFolder",
+        f"C:\\Users\\{username}\\Favorites": "FavoritesFolder",
+        f"C:\\Users\\{username}\\My Pictures": "MyPicturesFolder",
+        f"C:\\Users\\{username}\\NetHood": "NetHoodFolder",
+        f"C:\\Users\\{username}\\PrintHood": "PrintHoodFolder",
+        f"C:\\Users\\{username}\\Recent": "RecentFolder",
+        f"C:\\Users\\{username}\\SendTo": "SendToFolder",
+        f"C:\\Users\\{username}\\Start Menu": "StartMenuFolder",
+        f"C:\\Users\\{username}\\Startup": "StartupFolder",
+        "C:\\Windows\\System": "System16Folder",
+        "C:\\Windows\\Temp": "TempFolder",
+        "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local": "LocalAppDataFolder",
+    }
 
 # Function to generate a valid directory ID and Name
 def generate_directory_id_name(part):
     # Replace invalid characters with underscores for IDs
-    dir_id = f"dir_{part.replace(' ', '_').replace(':', '').replace('\\', '').replace('/', '')}"
+    sanitized_part = part.replace(' ', '_').replace(':', '').replace('\\', '').replace('/', '')
+    dir_id = f"dir_{sanitized_part}"
     # Remove invalid characters for Names
     dir_name = part.replace(":", "").replace("\\", "").replace("/", "")
     
@@ -182,6 +185,17 @@ def generate_directory_id_name(part):
         dir_name = "ROOT"
         
     return dir_id, dir_name
+
+# Function to find the matching standard directory
+def find_standard_directory(install_path, standard_directories):
+    normalized_install_path = os.path.normpath(install_path)
+    for standard_path, directory_id in standard_directories.items():
+        normalized_standard_path = os.path.normpath(standard_path)
+        if normalized_install_path.startswith(normalized_standard_path):
+            # Return the directory_id and the remaining part of the path after the standard directory
+            remaining_path = normalized_install_path[len(normalized_standard_path):].lstrip(os.sep)
+            return directory_id, remaining_path
+    return None, install_path  # No standard directory found, return the full path as is
 
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
@@ -192,38 +206,41 @@ def generate_wix_files(project_dir, config):
     username = os.getlogin()
     install_path = install_path.replace("[username]", username)
     
-    # Determine if the install_path matches a standard directory
-    directory_id = None
-    for standard_path, wix_id in STANDARD_DIRECTORIES.items():
-        if install_path.startswith(standard_path):
-            directory_id = wix_id
-            remaining_path = install_path[len(standard_path):].lstrip("\\")
-            break
+    standard_directories = get_standard_directories()
+    
+    # Find the matching standard directory
+    directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
     
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
-    package = etree.SubElement(wix, "Package", Name=config['product']['name'], Version=parse_version(config['product']['version']),
-                               Manufacturer=config['product']['manufacturer'], UpgradeCode=generate_guids(config['product']['identifier'])[1],
-                               InstallerVersion="500", Compressed="yes")
+    package = etree.SubElement(wix, "Package", 
+                               Name=config['product']['name'], 
+                               Version=parse_version(config['product']['version']),
+                               Manufacturer=config['product']['manufacturer'], 
+                               UpgradeCode=generate_guids(config['product']['identifier'])[1],
+                               InstallerVersion="500", 
+                               Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
+    # Define the directory structure
     if directory_id:
         # Use the StandardDirectory element for predefined directories
-        install_folder = etree.SubElement(package, "Directory", Id=directory_id)
+        install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
-        if remaining_path:
-            for part in remaining_path.split("\\"):
-                dir_id, dir_name = generate_directory_id_name(part)
-                current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-        install_folder = current_dir
+        # Add the remaining path as subdirectories
+        for part in Path(remaining_path).parts:
+            dir_id, dir_name = generate_directory_id_name(part)
+            current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
     else:
-        # Handle cases where the install path does not start with a standard directory
-        root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR")
-        current_dir = root_dir
+        # Start from the TARGETDIR as a fallback
+        install_folder = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
+        current_dir = install_folder
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-        install_folder = current_dir
-
+    
+    # Reference INSTALLFOLDER for consistency
+    current_dir.set("Id", "INSTALLFOLDER")
+    
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
@@ -240,25 +257,24 @@ def generate_wix_files(project_dir, config):
             binary_id = f"Binary_{script_type.capitalize()}Script"
             copy_action_id = f"Copy{script_type.capitalize()}ScriptToTemp"
             run_action_id = f"Run{script_type.capitalize()}Script"
-            generated_guid = str(uuid.uuid4())
     
             # Embed the script as a Binary in the MSI
-            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=script_path)
+            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_path))
     
             # Custom action to copy the script to %TEMP%
-            temp_script_path = f"%TEMP%\\{script_type}.ps1"
-            copy_command = f'cmd /c copy "[#{binary_id}]" "{temp_script_path}"'
+            temp_script_path = f"[TempFolder]{script_type}.ps1"
+            copy_command = f"cmd /c copy \"[#{binary_id}]\" \"{temp_script_path}\""
             
             # Adding custom action for copying the script
             copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                                           Directory="TARGETDIR",
+                                           Directory="TempFolder",
                                            ExeCommand=copy_command,
                                            Execute="deferred", Return="check", Impersonate="no")
             
             # Adding custom action for running the script
-            run_command = f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"'
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{temp_script_path}\""
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          Directory="TARGETDIR",
+                                          Directory="TempFolder",
                                           ExeCommand=run_command,
                                           Execute="deferred", Return="check", Impersonate="no")
     
@@ -280,13 +296,17 @@ def generate_wix_files(project_dir, config):
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(payload_dir)
-            dir_element = install_folder
+            dir_element = current_dir
             for part in relative_path.parent.parts:
                 dir_id, dir_name = generate_directory_id_name(part)
-                dir_element = etree.SubElement(dir_element, "Directory", Id=f"dir_{dir_id}", Name=dir_name)
-            component_id = f"Component_{file_path.stem}"
+                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                if existing_dir is None:
+                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                else:
+                    dir_element = existing_dir
+            component_id = f"Component_{uuid.uuid4().hex}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-            etree.SubElement(component, "File", Id=f"File_{file_path.stem}", Source=str(file_path), KeyPath="yes")
+            etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=component_id)  # Ensure each component is added to a feature
 
     # Generate the XML and save to file
