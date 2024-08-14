@@ -205,8 +205,8 @@ def generate_wix_files(project_dir, config):
         # Use the StandardDirectory element for predefined directories
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
     else:
-        # Create dynamic directory structure starting from TARGETDIR
-        root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
+        # Start from a standard directory
+        root_dir = etree.SubElement(package, "Directory", Id="ProgramFilesFolder")
         current_dir = root_dir
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
