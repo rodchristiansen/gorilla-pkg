@@ -271,7 +271,7 @@ def generate_wix_files(project_dir, config):
     
             # Define the custom action to execute the script
             run_action_id = f"Run{script_type.capitalize()}"
-            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[{binary_id}]\""
             etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
                              Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
     
