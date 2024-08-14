@@ -249,40 +249,27 @@ def generate_wix_files(project_dir, config):
     actions = get_scripts(project_dir)
     if actions:
         fragment = etree.SubElement(wix, "Fragment")
-    
+        
         # Process each script and create appropriate elements
         for script_type, script_path in actions.items():
             # Shorten the binary_id and action_ids to avoid WIX1000 warnings
             binary_id = f"Bin_{script_type.capitalize()[:14]}"
-            copy_action_id = f"Copy{script_type.capitalize()[:14]}"
             run_action_id = f"Run{script_type.capitalize()[:14]}"
         
             # Embed the script as a Binary in the MSI
             binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_path))
         
-            # Custom action to copy the script to %TEMP%
-            temp_script_path = f"[TempFolder]{script_type}"
-            copy_command = f"cmd /c copy \"[#{binary_id}]\" \"{temp_script_path}\""
-        
-            # Adding custom action for copying the script
-            copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                                           Directory="TempFolder",
-                                           ExeCommand=copy_command,
-                                           Execute="deferred", Return="check", Impersonate="no")
-        
-            # Adding custom action for running the script
-            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{temp_script_path}\""
+            # Custom action to directly run the script from the MSI binary
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          Directory="TempFolder",
-                                          ExeCommand=run_command,
-                                          Execute="deferred", Return="check", Impersonate="no")
+                                          BinaryRef=binary_id,
+                                          Execute="deferred", Return="check", Impersonate="no",
+                                          ExeCommand=run_command)
         
             # Setting the right sequence based on script type
             if script_type == 'preinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, After="InstallFiles")
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
     else:
         # If no scripts, still create a no-op custom action to ensure InstallExecuteSequence exists
@@ -400,8 +387,8 @@ def build_msi(project_dir, wix_path, output_dir=None):
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
-    # Command to use Package.wxs for building MSI
-    command = f'"{wix_exe}" build -out "{msi_file}" "{package_wix_file}"'
+    # Command to use Package.wxs for building MSI with verbose logging
+    command = f'"{wix_exe}" build -v -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
@@ -415,6 +402,24 @@ def build_msi(project_dir, wix_path, output_dir=None):
         if not sign_msi(msi_file, config['identity']):
             log("MSI signing process failed.", error=True)
             return
+    
+    # Embed preinstall and postinstall scripts as binaries
+    preinstall_script = Path(project_dir) / "scripts" / "preinstall.ps1"
+    postinstall_script = Path(project_dir) / "scripts" / "postinstall.ps1"
+    
+    if preinstall_script.exists():
+        command = f'"{wix_exe}" candle "{preinstall_script}" -o "{src_dir / "Bin_Preinstall.wixobj"}"'
+        run_command(command)
+        log("Preinstall script embedded successfully.")
+    else:
+        log("Preinstall script not found, skipping.")
+    
+    if postinstall_script.exists():
+        command = f'"{wix_exe}" candle "{postinstall_script}" -o "{src_dir / "Bin_Postinstall.wixobj"}"'
+        run_command(command)
+        log("Postinstall script embedded successfully.")
+    else:
+        log("Postinstall script not found, skipping.")
     
     # Clean up the src directory and Package.wxs file after the build
     log(f"Cleaning up the src directory: {src_dir}")
