@@ -243,33 +243,33 @@ def generate_wix_files(project_dir, config):
     # Handle scripts (if any)
     actions = get_scripts(project_dir)
     fragment = etree.SubElement(wix, "Fragment")
-    for script_type, script_path in actions.items():
-        # Load the content of the script file
-        with open(script_path, 'rb') as file:
-            script_data = file.read()
-        
-        # Encode script data in base64
-        script_data_b64 = base64.b64encode(script_data).decode('ascii')
-        
-        # Binary element with base64 encoded script data
-        binary_id = f"Bin_{script_type.capitalize()}"
-        binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
-        binary_element.text = script_data_b64  # Embed the base64 encoded script data
-        
-        # Custom action to run the script
-        run_action_id = f"Run{script_type.capitalize()}"
-        run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
-        etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
-                         Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
-        if script_type == 'preinstall':
-            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
-        elif script_type == 'postinstall':
-            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-
-    if not actions:
+    if actions:
+        for script_type, script_path in actions.items():
+            # Load the content of the script file
+            with open(script_path, 'rb') as file:
+                script_data = file.read()
+            
+            # Encode script data in base64
+            script_data_b64 = base64.b64encode(script_data).decode('ascii')
+            
+            # Binary element with base64 encoded script data
+            binary_id = f"Bin_{script_type.capitalize()}"
+            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
+            binary_element.text = script_data_b64  # Embed the base64 encoded script data
+            
+            # Custom action to run the script
+            run_action_id = f"Run{script_type.capitalize()}"
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
+            etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
+                             Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
+            if script_type == 'preinstall':
+                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
+            elif script_type == 'postinstall':
+                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
+    else:
         # Default no-op CustomAction
         no_op_action_id = "NoOpAction"
-        etree.SubElement(fragment, "CustomAction", Id=no_op_action_id, Execute="none")
+        etree.SubElement(fragment, "CustomAction", Id=no_op_action_id, Property="INSTALLFOLDER", Value="[INSTALLFOLDER]", Execute="immediate")
         etree.SubElement(install_execute_sequence, "Custom", Action=no_op_action_id, Before="InstallFinalize")
 
     # Add payload files to the package
