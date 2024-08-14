@@ -193,7 +193,12 @@ def generate_wix_files(project_dir, config):
     install_path = install_path.replace("[username]", username)
     
     # Determine if the install_path matches a standard directory
-    directory_id = STANDARD_DIRECTORIES.get(install_path)
+    directory_id = None
+    for standard_path, wix_id in STANDARD_DIRECTORIES.items():
+        if install_path.startswith(standard_path):
+            directory_id = wix_id
+            remaining_path = install_path[len(standard_path):].lstrip("\\")
+            break
     
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
     package = etree.SubElement(wix, "Package", Name=config['product']['name'], Version=parse_version(config['product']['version']),
@@ -203,10 +208,16 @@ def generate_wix_files(project_dir, config):
 
     if directory_id:
         # Use the StandardDirectory element for predefined directories
-        install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
+        install_folder = etree.SubElement(package, "Directory", Id=directory_id)
+        current_dir = install_folder
+        if remaining_path:
+            for part in remaining_path.split("\\"):
+                dir_id, dir_name = generate_directory_id_name(part)
+                current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+        install_folder = current_dir
     else:
-        # Start from a standard directory
-        root_dir = etree.SubElement(package, "Directory", Id="ProgramFilesFolder")
+        # Handle cases where the install path does not start with a standard directory
+        root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR")
         current_dir = root_dir
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
