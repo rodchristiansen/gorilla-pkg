@@ -8,6 +8,9 @@ import uuid
 import shutil
 from lxml import etree
 from pathlib import Path
+import base64
+script_data_b64 = base64.b64encode(script_data).decode('ascii')
+binary_element.text = script_data_b64
 
 # Define constants
 BUILD_INFO_FILE = "build-info.yaml"
@@ -74,12 +77,16 @@ def get_scripts(project_dir):
     log(f"Checking for scripts in {scripts_dir}")
 
     for script_type in ['preinstall', 'postinstall']:
+        script_found = False
         for extension in ['', '.ps1']:  # Check for both no extension and .ps1
             script_path = scripts_dir / f"{script_type}{extension}"
             if script_path.exists():
                 actions[script_type] = str(script_path)
                 log(f"Found {script_type} script: {script_path}")
-                break  # Stop checking if we've found a valid script
+                script_found = True
+                break  # Found the script, stop looking for more
+        if not script_found:
+            log(f"No {script_type} script found.", error=False)  # Log as info, not error
 
     return actions
 
@@ -201,17 +208,10 @@ def find_standard_directory(install_path, standard_directories):
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
-    install_path = config['install_path']
-    
-    # Replace [username] with actual system username
-    username = os.getlogin()
-    install_path = install_path.replace("[username]", username)
-    
+    install_path = config['install_path'].replace("[username]", os.getlogin())
     standard_directories = get_standard_directories()
-    
-    # Find the matching standard directory
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
-    
+
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
     package = etree.SubElement(wix, "Package", 
                                Name=config['product']['name'], 
@@ -221,7 +221,6 @@ def generate_wix_files(project_dir, config):
                                InstallerVersion="500", 
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
-
     # Define the directory structure
     if directory_id:
         # Use the StandardDirectory element for predefined directories
@@ -247,35 +246,26 @@ def generate_wix_files(project_dir, config):
 
     # Handle scripts (if any)
     actions = get_scripts(project_dir)
-    if actions:
-        fragment = etree.SubElement(wix, "Fragment")
+    fragment = etree.SubElement(wix, "Fragment")
+    for script_type, script_path in actions.items():
+        # Load the content of the script file
+        with open(script_path, 'rb') as file:
+            script_data = file.read()
         
-        # Process each script and create appropriate elements
-        for script_type, script_path in actions.items():
-            # Shorten the binary_id and action_ids to avoid WIX1000 warnings
-            binary_id = f"Bin_{script_type.capitalize()[:14]}"
-            run_action_id = f"Run{script_type.capitalize()[:14]}"
-        
-            # Embed the script as a Binary in the MSI
-            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_path))
-        
-            # Custom action to directly run the script from the MSI binary
-            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
-            run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          BinaryRef=binary_id,
-                                          Execute="deferred", Return="check", Impersonate="no",
-                                          ExeCommand=run_command)
-        
-            # Setting the right sequence based on script type
-            if script_type == 'preinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
-            elif script_type == 'postinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-    else:
-        # If no scripts, still create a no-op custom action to ensure InstallExecuteSequence exists
-        fragment = etree.SubElement(wix, "Fragment")
-        do_nothing_action = etree.SubElement(fragment, "CustomAction", Id="DoNothing", Property="DoNothing", Value="")
-        etree.SubElement(install_execute_sequence, "Custom", Action="DoNothing", Before="InstallFinalize")
+        # Binary element with script data
+        binary_id = f"Bin_{script_type.capitalize()}"
+        binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
+        binary_element.text = etree.CDATA(script_data)  # Embed the script data
+
+        # Custom action to run the script
+        run_action_id = f"Run{script_type.capitalize()}"
+        run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
+        etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
+                         Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
+        if script_type == 'preinstall':
+            etree.SubElement(package, "Custom", Action=run_action_id, Before="InstallFiles")
+        elif script_type == 'postinstall':
+            etree.SubElement(package, "Custom", Action=run_action_id, After="InstallFiles")
 
     # Add payload files to the package
     payload_dir = Path(project_dir) / "payload"
@@ -295,13 +285,12 @@ def generate_wix_files(project_dir, config):
             etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=component_id)
 
-    # Generate the XML and save to file
+    # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'wb') as file:
         file.write(xml_str)
-
+    
     log("Generated XML:")
     log(xml_str.decode())
     return output_path
