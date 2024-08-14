@@ -222,21 +222,18 @@ def generate_wix_files(project_dir, config):
 
     # Define the directory structure
     if directory_id:
-        # Use the StandardDirectory element for predefined directories
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
-        # Add the remaining path as subdirectories
         for part in Path(remaining_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
     else:
-        # Directly use INSTALLFOLDER under ProgramFilesFolder if no standard directory matches
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
-        current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=f"{config['product']['manufacturer']} {config['product']['name']}")
+        current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-    
+
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
@@ -250,24 +247,30 @@ def generate_wix_files(project_dir, config):
         # Load the content of the script file
         with open(script_path, 'rb') as file:
             script_data = file.read()
-    
+        
         # Encode script data in base64
         script_data_b64 = base64.b64encode(script_data).decode('ascii')
-    
+        
         # Binary element with base64 encoded script data
         binary_id = f"Bin_{script_type.capitalize()}"
         binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
         binary_element.text = script_data_b64  # Embed the base64 encoded script data
-    
+        
         # Custom action to run the script
         run_action_id = f"Run{script_type.capitalize()}"
         run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[#{binary_id}]\""
         etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
                          Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
         if script_type == 'preinstall':
-            etree.SubElement(package, "Custom", Action=run_action_id, Before="InstallFiles")
+            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
         elif script_type == 'postinstall':
-            etree.SubElement(package, "Custom", Action=run_action_id, After="InstallFiles")
+            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
+
+    if not actions:
+        # Default no-op CustomAction
+        no_op_action_id = "NoOpAction"
+        etree.SubElement(fragment, "CustomAction", Id=no_op_action_id, Execute="none")
+        etree.SubElement(install_execute_sequence, "Custom", Action=no_op_action_id, Before="InstallFinalize")
 
     # Add payload files to the package
     payload_dir = Path(project_dir) / "payload"
@@ -290,10 +293,9 @@ def generate_wix_files(project_dir, config):
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
-    output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists before writing
     with open(output_path, 'wb') as file:
         file.write(xml_str)
-    
+
     log("Generated XML:")
     log(xml_str.decode())
     return output_path
