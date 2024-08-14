@@ -184,7 +184,6 @@ def generate_directory_id_name(part):
     return dir_id, dir_name
 
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
-# Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     install_path = config['install_path']
@@ -206,8 +205,8 @@ def generate_wix_files(project_dir, config):
         # Use the StandardDirectory element for predefined directories
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
     else:
-        # Create dynamic directory structure with a unique root ID
-        root_dir = etree.SubElement(package, "Directory", Id="CustomRootDir", Name="SourceDir")
+        # Create dynamic directory structure starting from TARGETDIR
+        root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
         current_dir = root_dir
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
@@ -241,14 +240,14 @@ def generate_wix_files(project_dir, config):
             
             # Adding custom action for copying the script
             copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                                           Directory="CustomRootDir",
+                                           Directory="TARGETDIR",
                                            ExeCommand=copy_command,
                                            Execute="deferred", Return="check", Impersonate="no")
             
             # Adding custom action for running the script
             run_command = f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"'
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          Directory="CustomRootDir",
+                                          Directory="TARGETDIR",
                                           ExeCommand=run_command,
                                           Execute="deferred", Return="check", Impersonate="no")
     
