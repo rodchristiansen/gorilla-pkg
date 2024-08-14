@@ -141,81 +141,129 @@ def parse_version(version_str):
         log(f"Invalid version format '{version_str}'. Expected format: 'YYYY.MM.DD' or 'X.Y.Z'.", error=True)
         sys.exit(1)
 
+# Define directories for xml to map from yaml
+STANDARD_DIRECTORIES = {
+    "C:\\": "TARGETDIR",
+    "C:\\Program Files": "ProgramFilesFolder",
+    "C:\\Program Files (x86)": "ProgramFiles6432Folder",
+    "C:\\Program Files\\Common Files": "CommonFilesFolder",
+    "C:\\Program Files\\Common Files (x86)": "CommonFiles6432Folder",
+    "C:\\ProgramData": "CommonAppDataFolder",
+    "C:\\Windows": "WindowsFolder",
+    "C:\\Windows\\System32": "SystemFolder",
+    "C:\\Windows\\SysWOW64": "System64Folder",
+    "C:\\Windows\\Fonts": "FontsFolder",
+    f"C:\\Users\\{os.getlogin()}\\AppData\\Local": "LocalAppDataFolder",
+    f"C:\\Users\\{os.getlogin()}\\AppData\\Roaming": "AppDataFolder",
+    f"C:\\Users\\{os.getlogin()}\\Desktop": "DesktopFolder",
+    f"C:\\Users\\{os.getlogin()}\\Documents": "PersonalFolder",
+    f"C:\\Users\\{os.getlogin()}\\Favorites": "FavoritesFolder",
+    f"C:\\Users\\{os.getlogin()}\\My Pictures": "MyPicturesFolder",
+    f"C:\\Users\\{os.getlogin()}\\NetHood": "NetHoodFolder",
+    f"C:\\Users\\{os.getlogin()}\\PrintHood": "PrintHoodFolder",
+    f"C:\\Users\\{os.getlogin()}\\Recent": "RecentFolder",
+    f"C:\\Users\\{os.getlogin()}\\SendTo": "SendToFolder",
+    f"C:\\Users\\{os.getlogin()}\\Start Menu": "StartMenuFolder",
+    f"C:\\Users\\{os.getlogin()}\\Startup": "StartupFolder",
+    "C:\\Windows\\System": "System16Folder",
+    "C:\\Windows\\Temp": "TempFolder",
+    "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local": "LocalAppDataFolder",
+}
+
+# Function to generate a valid directory ID and Name
+def generate_directory_id_name(part):
+    # Replace invalid characters with underscores for IDs
+    dir_id = f"dir_{part.replace(' ', '_').replace(':', '').replace('\\', '').replace('/', '')}"
+    # Remove invalid characters for Names
+    dir_name = part.replace(":", "").replace("\\", "").replace("/", "")
+    
+    # If the name is empty (like for 'C:'), use a placeholder
+    if not dir_name:
+        dir_name = "ROOT"
+        
+    return dir_id, dir_name
+
+# Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
-    powershell_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-
-    # Create the root Wix element
+    install_path = config['install_path']
+    
+    # Replace [username] with actual system username
+    username = os.getlogin()
+    install_path = install_path.replace("[username]", username)
+    
+    # Determine if the install_path matches a standard directory
+    directory_id = STANDARD_DIRECTORIES.get(install_path)
+    
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
-
-    # Setup basic package attributes
-    package_attrs = {
-        "Name": config['product']['name'],
-        "Version": parse_version(config['product']['version']),
-        "Manufacturer": config['product']['manufacturer'],
-        "UpgradeCode": generate_guids(config['product']['identifier'])[1],
-        "InstallerVersion": "500",
-        "Compressed": "yes"
-    }
-    package = etree.SubElement(wix, "Package", **package_attrs)
+    package = etree.SubElement(wix, "Package", Name=config['product']['name'], Version=parse_version(config['product']['version']),
+                               Manufacturer=config['product']['manufacturer'], UpgradeCode=generate_guids(config['product']['identifier'])[1],
+                               InstallerVersion="500", Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the custom directory structure based on the install_path
-    install_path = config['install_path']
-    root_dir = etree.SubElement(package, "Directory", Id="TARGETDIR", Name="SourceDir")
-    
-    current_dir = root_dir
-    for part in Path(install_path).parts:
-        sanitized_part = part.replace(":", "").replace("\\", "").replace(" ", "_")
-        dir_id = f"dir_{sanitized_part}"  # Legal Id for each directory
-        current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=sanitized_part)
-    
-    install_folder = current_dir  # This will be the INSTALLFOLDER in WiX
+    if directory_id:
+        # Use the StandardDirectory element for predefined directories
+        install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
+    else:
+        # Create dynamic directory structure with a unique root ID
+        root_dir = etree.SubElement(package, "Directory", Id="CustomRootDir", Name="SourceDir")
+        current_dir = root_dir
+        for part in Path(install_path).parts:
+            dir_id, dir_name = generate_directory_id_name(part)
+            current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+        install_folder = current_dir
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Always create InstallExecuteSequence and a placeholder CustomAction
+    # Always create InstallExecuteSequence
     install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-    fragment = etree.SubElement(wix, "Fragment")
-    placeholder_action_id = "DoNothing"
-    placeholder_action = etree.SubElement(fragment, "CustomAction", Id=placeholder_action_id, 
-                                          Execute="immediate", Return="check", Property="DoNothing",
-                                          Value="")  # No operation
 
     # Handle scripts (if any)
     actions = get_scripts(project_dir)
     if actions:
+        fragment = etree.SubElement(wix, "Fragment")
+    
+        # Process each script and create appropriate elements
         for script_type, script_path in actions.items():
             binary_id = f"Binary_{script_type.capitalize()}Script"
             copy_action_id = f"Copy{script_type.capitalize()}ScriptToTemp"
             run_action_id = f"Run{script_type.capitalize()}Script"
             generated_guid = str(uuid.uuid4())
     
+            # Embed the script as a Binary in the MSI
             binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=script_path)
+    
+            # Custom action to copy the script to %TEMP%
             temp_script_path = f"%TEMP%\\{script_type}.ps1"
             copy_command = f'cmd /c copy "[#{binary_id}]" "{temp_script_path}"'
+            
+            # Adding custom action for copying the script
             copy_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id,
-                                           Directory="TARGETDIR",
+                                           Directory="CustomRootDir",
                                            ExeCommand=copy_command,
                                            Execute="deferred", Return="check", Impersonate="no")
+            
+            # Adding custom action for running the script
             run_command = f'"{powershell_path}" -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "{temp_script_path}"'
             run_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id,
-                                          Directory="TARGETDIR",
+                                          Directory="CustomRootDir",
                                           ExeCommand=run_command,
                                           Execute="deferred", Return="check", Impersonate="no")
     
+            # Setting the right sequence based on script type
             if script_type == 'preinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, After="InstallFiles")
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-
     else:
-        # If no scripts, add a no-op placeholder action to satisfy the schema requirements
-        etree.SubElement(install_execute_sequence, "Custom", Action=placeholder_action_id, Before="InstallFinalize")
+        # If no scripts, still create a no-op custom action to ensure InstallExecuteSequence exists
+        fragment = etree.SubElement(wix, "Fragment")
+        do_nothing_action = etree.SubElement(fragment, "CustomAction", Id="DoNothing", Property="DoNothing", Value="")
+        etree.SubElement(install_execute_sequence, "Custom", Action="DoNothing", Before="InstallFinalize")
 
     # Add payload files to the package
     payload_dir = Path(project_dir) / "payload"
@@ -224,12 +272,12 @@ def generate_wix_files(project_dir, config):
             relative_path = file_path.relative_to(payload_dir)
             dir_element = install_folder
             for part in relative_path.parent.parts:
-                sanitized_part = part.replace(":", "").replace("\\", "").replace(" ", "_")
-                dir_element = etree.SubElement(dir_element, "Directory", Id=sanitized_part, Name=sanitized_part)
+                dir_id, dir_name = generate_directory_id_name(part)
+                dir_element = etree.SubElement(dir_element, "Directory", Id=f"dir_{dir_id}", Name=dir_name)
             component_id = f"Component_{file_path.stem}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             etree.SubElement(component, "File", Id=f"File_{file_path.stem}", Source=str(file_path), KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=component_id)
+            etree.SubElement(feature, "ComponentRef", Id=component_id)  # Ensure each component is added to a feature
 
     # Generate the XML and save to file
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
