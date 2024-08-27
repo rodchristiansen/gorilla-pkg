@@ -433,10 +433,13 @@ def main():
         config = read_build_info(args.project_dir)
 
         # Generate WiX source files based on payload and scripts
-        generate_wix_files(args.project_dir, config)
+        output_path = generate_wix_files(args.project_dir, config)
+
+        # Check if scripts are present
+        has_scripts = bool(get_scripts(args.project_dir))
 
         # Verify the generated WiX source files before building the MSI
-        if not verify_wxs_files(args.project_dir):
+        if not verify_wxs_files(args.project_dir, has_scripts):
             log("Verification of WiX source files failed, aborting MSI creation.", error=True)
             sys.exit(1)
 
