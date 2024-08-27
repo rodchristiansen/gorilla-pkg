@@ -204,52 +204,6 @@ def find_standard_directory(install_path, standard_directories):
             return directory_id, remaining_path
     return None, install_path  # No standard directory found, return the full path as is
 
-def generate_custom_actions_wxs(preinstall_script_path, postinstall_script_path):
-    # Generate unique IDs for actions and binary references
-    preinstall_id = "PreinstallScript"
-    postinstall_id = "PostinstallScript"
-    
-    custom_actions = []
-
-    if preinstall_script_path:
-        custom_actions.append(f'''
-        <Binary Id="{preinstall_id}" SourceFile="{preinstall_script_path}" />
-        <CustomAction Id="{preinstall_id}Component" BinaryKey="{preinstall_id}" 
-            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{preinstall_id}.ps1" 
-            Return="check" Impersonate="no" />''')
-
-    if postinstall_script_path:
-        custom_actions.append(f'''
-        <Binary Id="{postinstall_id}" SourceFile="{postinstall_script_path}" />
-        <CustomAction Id="{postinstall_id}Component" BinaryKey="{postinstall_id}" 
-            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{postinstall_id}.ps1" 
-            Return="check" Impersonate="no" />''')
-
-    custom_actions_str = "\n".join(custom_actions)
-
-    install_execute_sequence = []
-    if preinstall_script_path:
-        install_execute_sequence.append(f'''
-        <Custom Action="{preinstall_id}Component" Before="InstallFiles">NOT Installed</Custom>''')
-    
-    if postinstall_script_path:
-        install_execute_sequence.append(f'''
-        <Custom Action="{postinstall_id}Component" After="InstallFiles">NOT Installed</Custom>''')
-
-    install_execute_sequence_str = "\n".join(install_execute_sequence)
-
-    custom_actions_wxs = f'''
-    <Fragment>
-        <SetProperty Id="TempFolder" Value="[TempFolder]" />
-        {custom_actions_str}
-        <InstallExecuteSequence>
-            {install_execute_sequence_str}
-        </InstallExecuteSequence>
-    </Fragment>
-    '''
-
-    return custom_actions_wxs
-
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
