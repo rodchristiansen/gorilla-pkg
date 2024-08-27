@@ -38,16 +38,6 @@ def read_build_info(project_dir):
     with open(build_info_path, 'r') as file:
         return yaml.safe_load(file)
 
-def clean_src_folder(src_dir):
-    if src_dir.exists():
-        try:
-            shutil.rmtree(src_dir)
-            log(f"Cleaned up existing src directory: {src_dir}")
-        except Exception as e:
-            log(f"Failed to clean up src directory: {str(e)}", error=True)
-            sys.exit(1)
-    src_dir.mkdir(exist_ok=True)  # Recreate the src directory after cleanup
-
 # Function to dynamically populate files section based on payload directory contents
 def get_files_from_payload(project_dir):
     payload_dir = Path(project_dir) / "payload"
@@ -55,7 +45,7 @@ def get_files_from_payload(project_dir):
     files_list = []
     
     if not payload_dir.exists():
-        log(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.", error=True)
+        log(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.", error=False)
 
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
@@ -76,16 +66,12 @@ def get_scripts(project_dir):
     log(f"Checking for scripts in {scripts_dir}")
 
     for script_type in ['preinstall', 'postinstall']:
-        script_found = False
-        for extension in ['', '.ps1']:  # Check for both no extension and .ps1
-            script_path = scripts_dir / f"{script_type}{extension}"
-            if script_path.exists():
-                actions[script_type] = str(script_path)
-                log(f"Found {script_type} script: {script_path}")
-                script_found = True
-                break  # Found the script, stop looking for more
-        if not script_found:
-            log(f"No {script_type} script found.", error=False)  # Log as info, not error
+        script_path = scripts_dir / f"{script_type}.ps1"
+        if script_path.exists():
+            actions[script_type] = str(script_path)
+            log(f"Found {script_type} script: {script_path}")
+        else:
+            log(f"No {script_type} script found.", error=False)
 
     return actions
 
@@ -204,25 +190,6 @@ def find_standard_directory(install_path, standard_directories):
             return directory_id, remaining_path
     return None, install_path  # No standard directory found, return the full path as is
 
-# Function to dynamically populate files section based on scripts directory contents
-def get_files_from_scripts(project_dir):
-    scripts_dir = Path(project_dir) / "scripts"
-    log(f"Getting files from scripts directory {scripts_dir}")
-    files_list = []
-
-    if scripts_dir.exists():
-        for file_path in scripts_dir.rglob('*'):
-            if file_path.is_file():
-                file_entry = {
-                    "source": str(file_path).replace("\\", "/"),
-                    "destination": f"[TempFolder]{file_path.relative_to(scripts_dir)}",
-                    "component_id": f"Component_{file_path.stem}"
-                }
-                files_list.append(file_entry)
-                log(f"Added script: {file_entry['source']} to installation package")
-    
-    return files_list
-
 # Function to generate WiX XML files, including embedding PowerShell scripts as binaries
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
@@ -281,7 +248,7 @@ def generate_wix_files(project_dir, config):
             
             # Create the CustomAction to run the script from TempFolder
             run_action_id = f"Run{script_type.capitalize()}"
-            exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[#TempFolder\\{script_type}.ps1]'"
+            exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[%TempFolder]\\{file_id}.ps1'"
             etree.SubElement(fragment, "CustomAction", Id=run_action_id, FileRef=file_element.attrib['Id'],
                              Execute="deferred", Return="check", Impersonate="no", ExeCommand=exe_command)
             
@@ -290,7 +257,6 @@ def generate_wix_files(project_dir, config):
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-                
     else:
         # Define a no-op CustomAction if no scripts are found
         no_op_action_id = "NoOpAction"
@@ -298,7 +264,7 @@ def generate_wix_files(project_dir, config):
         etree.SubElement(install_execute_sequence, "Custom", Action=no_op_action_id, Before="InstallFinalize")
 
     # Add payload files to the package
-    payload_dir = Path(project_dir) / "payload"  # Ensure payload_dir is defined here
+    payload_dir = Path(project_dir) / "payload"
     for file_path in payload_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(payload_dir)
@@ -314,23 +280,6 @@ def generate_wix_files(project_dir, config):
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=component_id)
-
-    # Add script files to the package
-    script_files = get_files_from_scripts(project_dir)
-    for file_entry in script_files:
-        relative_path = Path(file_entry["source"]).relative_to(Path(project_dir) / "scripts")
-        dir_element = temp_folder_dir
-        for part in relative_path.parent.parts:
-            dir_id, dir_name = generate_directory_id_name(part)
-            existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-            if existing_dir is None:
-                dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-            else:
-                dir_element = existing_dir
-        component_id = f"Component_{uuid.uuid4().hex}"
-        component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-        etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=file_entry["source"], KeyPath="yes")
-        etree.SubElement(feature, "ComponentRef", Id=component_id)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -415,8 +364,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
     # Use 'build' folder as default output directory unless specified
     if output_dir is None:
         output_dir = Path(project_dir) / "build"
-    else:
-        output_dir = Path(output_dir)
+    else, output_dir = Path(output_dir)
     
     output_dir.mkdir(exist_ok=True)
     
@@ -451,7 +399,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
 # 
 #     # Clean up the .wixpdb file
 #     wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
-#     if wixpdb_file.exists():
+#     if wixpdb_file exists():
 #         try:
 #             wixpdb_file.unlink()
 #             log(f"{wixpdb_file} file has been removed.")
