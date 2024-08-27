@@ -282,6 +282,13 @@ def generate_wix_files(project_dir, config):
     
     log("Generated XML:")
     log(xml_str.decode())
+    
+    # Verify the generated XML
+    has_scripts = bool(actions)
+    if not verify_wxs_files(project_dir, has_scripts):
+        log("Verification of WiX source files failed, aborting MSI creation.", error=True)
+        sys.exit(1)
+    
     return output_path
 
 # Function to run a subprocess and check for errors
@@ -299,7 +306,7 @@ def run_command(command, quiet=False, verbose=False):
         log(result.stdout)
     return True, result.stdout
 
-def verify_wxs_files(project_dir):
+def verify_wxs_files(project_dir, has_scripts):
     src_dir = Path(project_dir) / "src"
     package_wxs_path = src_dir / "Package.wxs"
     
@@ -317,10 +324,14 @@ def verify_wxs_files(project_dir):
             f"{{{NS_WIX}}}Directory",
             f"{{{NS_WIX}}}Component",
             f"{{{NS_WIX}}}ComponentRef",
-            f"{{{NS_WIX}}}CustomAction",
-            f"{{{NS_WIX}}}InstallExecuteSequence",
             f"{{{NS_WIX}}}File"
         ]
+
+        if has_scripts:
+            required_tags += [
+                f"{{{NS_WIX}}}CustomAction",
+                f"{{{NS_WIX}}}InstallExecuteSequence"
+            ]
 
         missing_tags = []
         for tag in required_tags:
