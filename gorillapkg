@@ -88,22 +88,6 @@ def get_scripts(project_dir):
             log(f"No {script_type} script found.", error=False)  # Log as info, not error
 
     return actions
-    
-def prepare_script_binary(script_path):
-    """
-    This function reads the script data, saves it to a temporary file,
-    and returns the path to this temporary file for embedding in the MSI.
-    """
-    with open(script_path, 'rb') as file:
-        script_data = file.read()
-
-    # Save to a temporary file
-    temp_fd, temp_path = tempfile.mkstemp(suffix='.ps1', text=True)
-    with os.fdopen(temp_fd, 'w') as tmp:
-        # If the scripts are text, this is fine; if they're binary, you'll need to adjust handling
-        tmp.write(script_data.decode('utf-8'))
-
-    return temp_path
 
 # Function to generate UpgradeCodes
 def generate_guids(identifier):
@@ -260,21 +244,25 @@ def generate_wix_files(project_dir, config):
     # Handle scripts (if any)
     actions = get_scripts(project_dir)
     fragment = etree.SubElement(wix, "Fragment")
+    
     if actions:
         for script_type, script_path in actions.items():
-            # Prepare binary for the script
-            temp_script_path = prepare_script_binary(script_path)
-    
-            # Embed the path of the temporary script file
+            # Read the script content
+            with open(script_path, 'rb') as script_file:
+                script_content = script_file.read()
+            
+            # Create a Binary element with the script content
             binary_id = f"Bin_{script_type.capitalize()}"
-            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=temp_script_path)
-    
+            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
+            binary_element.text = base64.b64encode(script_content).decode('utf-8')
+            
             # Define the custom action to execute the script
             run_action_id = f"Run{script_type.capitalize()}"
-            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"[{binary_id}]\""
-            etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File [# {binary_id}]"
+            etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryKey=binary_id,
                              Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
-    
+            
+            # Add the custom action to the InstallExecuteSequence
             if script_type == 'preinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
@@ -348,7 +336,8 @@ def verify_wxs_files(project_dir):
             f"{{{NS_WIX}}}Component",
             f"{{{NS_WIX}}}ComponentRef",
             f"{{{NS_WIX}}}CustomAction",
-            f"{{{NS_WIX}}}InstallExecuteSequence"
+            f"{{{NS_WIX}}}InstallExecuteSequence",
+            f"{{{NS_WIX}}}Binary"
         ]
 
         missing_tags = []
@@ -411,22 +400,22 @@ def build_msi(project_dir, wix_path, output_dir=None):
             log("MSI signing process failed.", error=True)
             return
     
-    # Clean up the src directory and Package.wxs file after the build
-    log(f"Cleaning up the src directory: {src_dir}")
-    try:
-        shutil.rmtree(src_dir)
-        log("src directory and Package.wxs file have been removed.")
-    except Exception as e:
-        log(f"Failed to clean up src directory: {str(e)}", error=True)
-
-    # Clean up the .wixpdb file
-    wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
-    if wixpdb_file.exists():
-        try:
-            wixpdb_file.unlink()
-            log(f"{wixpdb_file} file has been removed.")
-        except Exception as e:
-            log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
+#     # Clean up the src directory and Package.wxs file after the build
+#     log(f"Cleaning up the src directory: {src_dir}")
+#     try:
+#         shutil.rmtree(src_dir)
+#         log("src directory and Package.wxs file have been removed.")
+#     except Exception as e:
+#         log(f"Failed to clean up src directory: {str(e)}", error=True)
+# 
+#     # Clean up the .wixpdb file
+#     wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
+#     if wixpdb_file.exists():
+#         try:
+#             wixpdb_file.unlink()
+#             log(f"{wixpdb_file} file has been removed.")
+#         except Exception as e:
+#             log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
 
 # Main function with command-line arguments
 def main():
