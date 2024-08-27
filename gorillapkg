@@ -304,7 +304,7 @@ def generate_wix_files(project_dir, config):
         
         preinstall_action_id = "RunPreinstall"
         preinstall_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[#PreinstallScript]'"
-        etree.SubElement(fragment, "CustomAction", Id=preinstall_action_id, FileKey="PreinstallScript", Execute="deferred", Return="check", Impersonate="no", ExeCommand=preinstall_command)
+        etree.SubElement(fragment, "CustomAction", Id=preinstall_action_id, FileRef="PreinstallScript", Execute="deferred", Return="check", Impersonate="no", ExeCommand=preinstall_command)
         etree.SubElement(install_execute_sequence, "Custom", Action=preinstall_action_id, Before="InstallFiles")
 
     if postinstall_path.exists():
@@ -315,7 +315,7 @@ def generate_wix_files(project_dir, config):
         
         postinstall_action_id = "RunPostinstall"
         postinstall_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[#PostinstallScript]'"
-        etree.SubElement(fragment, "CustomAction", Id=postinstall_action_id, FileKey="PostinstallScript", Execute="deferred", Return="check", Impersonate="no", ExeCommand=postinstall_command)
+        etree.SubElement(fragment, "CustomAction", Id=postinstall_action_id, FileRef="PostinstallScript", Execute="deferred", Return="check", Impersonate="no", ExeCommand=postinstall_command)
         etree.SubElement(install_execute_sequence, "Custom", Action=postinstall_action_id, After="InstallFiles")
 
     if not preinstall_path.exists() and not postinstall_path.exists():
