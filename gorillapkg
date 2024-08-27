@@ -247,16 +247,19 @@ def generate_wix_files(project_dir, config):
     
     if actions:
         for script_type, script_path in actions.items():
-            # Convert the script content to base64
+            # Convert the script content to base64 and write to a temp file
             with open(script_path, 'rb') as script_file:
                 script_content = script_file.read()
             base64_script = base64.b64encode(script_content).decode('utf-8')
-
-            # Create a Binary element with the script content
+            
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".b64")
+            with open(temp_file.name, 'w') as temp_script_file:
+                temp_script_file.write(base64_script)
+            
+            # Create a Binary element with the temp file as SourceFile
             binary_id = f"Bin_{script_type.capitalize()}"
-            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
-            binary_element.text = base64_script  # Embed base64 content
-
+            binary_element = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=temp_file.name)
+            
             # Define the custom action to execute the script
             run_action_id = f"Run{script_type.capitalize()}"
             exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -EncodedCommand {base64_script}"
