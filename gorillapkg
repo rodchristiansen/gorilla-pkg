@@ -254,13 +254,12 @@ def generate_wix_files(project_dir, config):
             # Create a Binary element with the script content
             binary_id = f"Bin_{script_type.capitalize()}"
             binary_element = etree.SubElement(fragment, "Binary", Id=binary_id)
-            binary_element.text = base64.b64encode(script_content).decode('utf-8')
-            
+            binary_element.set("SourceFile", script_path)  # Reference the script file
+
             # Define the custom action to execute the script
             run_action_id = f"Run{script_type.capitalize()}"
-            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File [# {binary_id}]"
-            etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryKey=binary_id,
-                             Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
+            etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=binary_id,
+                             Execute="deferred", Return="check", Impersonate="no")
             
             # Add the custom action to the InstallExecuteSequence
             if script_type == 'preinstall':
