@@ -364,7 +364,8 @@ def build_msi(project_dir, wix_path, output_dir=None):
     # Use 'build' folder as default output directory unless specified
     if output_dir is None:
         output_dir = Path(project_dir) / "build"
-    else, output_dir = Path(output_dir)
+    else:
+        output_dir = Path(output_dir)
     
     output_dir.mkdir(exist_ok=True)
     
