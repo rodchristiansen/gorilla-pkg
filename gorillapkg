@@ -215,14 +215,14 @@ def generate_custom_actions_wxs(preinstall_script_path, postinstall_script_path)
         custom_actions.append(f'''
         <Binary Id="{preinstall_id}" SourceFile="{preinstall_script_path}" />
         <CustomAction Id="{preinstall_id}Component" BinaryKey="{preinstall_id}" 
-            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{preinstall_script_path}" 
+            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{preinstall_id}.ps1" 
             Return="check" Impersonate="no" />''')
 
     if postinstall_script_path:
         custom_actions.append(f'''
         <Binary Id="{postinstall_id}" SourceFile="{postinstall_script_path}" />
         <CustomAction Id="{postinstall_id}Component" BinaryKey="{postinstall_id}" 
-            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{postinstall_script_path}" 
+            Execute="deferred" ExeCommand="powershell.exe -ExecutionPolicy Bypass -File [TempFolder]{postinstall_id}.ps1" 
             Return="check" Impersonate="no" />''')
 
     custom_actions_str = "\n".join(custom_actions)
@@ -240,7 +240,7 @@ def generate_custom_actions_wxs(preinstall_script_path, postinstall_script_path)
 
     custom_actions_wxs = f'''
     <Fragment>
-        <CustomAction Id="SetTempFolder" Property="TempFolder" Value="[%TEMP%]" Execute="immediate" />
+        <SetProperty Id="TempFolder" Value="[TempFolder]" />
         {custom_actions_str}
         <InstallExecuteSequence>
             {install_execute_sequence_str}
