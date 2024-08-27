@@ -338,7 +338,7 @@ def verify_wxs_files(project_dir):
             f"{{{NS_WIX}}}ComponentRef",
             f"{{{NS_WIX}}}CustomAction",
             f"{{{NS_WIX}}}InstallExecuteSequence",
-            f"{{{NS_WIX}}}Binary"
+            f"{{{NS_WIX}}}File"
         ]
 
         missing_tags = []
