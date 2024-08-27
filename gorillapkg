@@ -221,21 +221,18 @@ def generate_wix_files(project_dir, config):
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
 
-    # Define TempFolder in the directory structure
-    temp_folder_dir = etree.SubElement(current_dir, "Directory", Id="TempFolder", Name="Temp")
+    # Define TempFolder in the directory structure only if scripts exist
+    actions = get_scripts(project_dir)
+    if actions:
+        temp_folder_dir = etree.SubElement(current_dir, "Directory", Id="TempFolder", Name="Temp")
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Always create InstallExecuteSequence
-    install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-
     # Handle scripts (if any)
-    actions = get_scripts(project_dir)
     fragment = etree.SubElement(wix, "Fragment")
-    
-    # Ensure the correct handling of actions and their script paths
     if actions:
+        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
         for script_type, script_path in actions.items():
             file_id = f"{script_type.capitalize()}Script"
             
@@ -257,11 +254,6 @@ def generate_wix_files(project_dir, config):
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-    else:
-        # Define a no-op CustomAction if no scripts are found
-        no_op_action_id = "NoOpAction"
-        etree.SubElement(fragment, "CustomAction", Id=no_op_action_id, Execute="none")
-        etree.SubElement(install_execute_sequence, "Custom", Action=no_op_action_id, Before="InstallFinalize")
 
     # Add payload files to the package
     payload_dir = Path(project_dir) / "payload"
