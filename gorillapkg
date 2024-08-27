@@ -302,10 +302,10 @@ def generate_wix_files(project_dir, config):
             component = etree.SubElement(temp_dir, "Component", Id=f"{file_id}Component", Guid=str(uuid.uuid4()))
             file_element = etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component")
-
+    
             # Define the custom action to execute the script
             run_action_id = f"Run{script_type.capitalize()}"
-            exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[#{script_type}Script]'"
+            exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[#{file_id}]'"
             etree.SubElement(fragment, "CustomAction", Id=run_action_id, FileRef=file_element.attrib['Id'],
                              Execute="deferred", Return="check", Impersonate="no", ExeCommand=exe_command)
             
