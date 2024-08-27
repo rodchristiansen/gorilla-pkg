@@ -277,7 +277,7 @@ def generate_wix_files(project_dir, config):
             file_element = etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
             
             # Reference this Component in the Feature element
-            etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component}")
+            etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component")
             
             # Create the CustomAction to run the script from TempFolder
             run_action_id = f"Run{script_type.capitalize()}"
@@ -290,6 +290,7 @@ def generate_wix_files(project_dir, config):
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
+                
     else:
         # Define a no-op CustomAction if no scripts are found
         no_op_action_id = "NoOpAction"
