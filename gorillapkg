@@ -255,7 +255,7 @@ def generate_wix_files(project_dir, config):
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
 
     # Define TempFolder in the directory structure
-    temp_folder_dir = etree.SubElement(package, "StandardDirectory", Id="TempFolder", Name="Temp")
+    temp_folder_dir = etree.SubElement(current_dir, "Directory", Id="TempFolder", Name="Temp")
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
@@ -277,7 +277,7 @@ def generate_wix_files(project_dir, config):
             file_element = etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
             
             # Reference this Component in the Feature element
-            etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component")
+            etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component}")
             
             # Create the CustomAction to run the script from TempFolder
             run_action_id = f"Run{script_type.capitalize()}"
@@ -297,26 +297,27 @@ def generate_wix_files(project_dir, config):
         etree.SubElement(install_execute_sequence, "Custom", Action=no_op_action_id, Before="InstallFinalize")
 
     # Add payload files to the package
-    payload_files = get_files_from_payload(project_dir)
-    for file_entry in payload_files:
-        relative_path = Path(file_entry["source"]).relative_to(payload_dir)
-        dir_element = current_dir
-        for part in relative_path.parent.parts:
-            dir_id, dir_name = generate_directory_id_name(part)
-            existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-            if existing_dir is None:
-                dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-            else:
-                dir_element = existing_dir
-        component_id = file_entry["component_id"]
-        component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-        etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=file_entry["source"], KeyPath="yes")
-        etree.SubElement(feature, "ComponentRef", Id=component_id)
+    payload_dir = Path(project_dir) / "payload"  # Ensure payload_dir is defined here
+    for file_path in payload_dir.rglob('*'):
+        if file_path.is_file():
+            relative_path = file_path.relative_to(payload_dir)
+            dir_element = current_dir
+            for part in relative_path.parent.parts:
+                dir_id, dir_name = generate_directory_id_name(part)
+                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                if existing_dir is None:
+                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                else:
+                    dir_element = existing_dir
+            component_id = f"Component_{uuid.uuid4().hex}"
+            component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+            etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
+            etree.SubElement(feature, "ComponentRef", Id=component_id)
 
     # Add script files to the package
     script_files = get_files_from_scripts(project_dir)
     for file_entry in script_files:
-        relative_path = Path(file_entry["source"]).relative_to(scripts_dir)
+        relative_path = Path(file_entry["source"]).relative_to(Path(project_dir) / "scripts")
         dir_element = temp_folder_dir
         for part in relative_path.parent.parts:
             dir_id, dir_name = generate_directory_id_name(part)
@@ -325,7 +326,7 @@ def generate_wix_files(project_dir, config):
                 dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
             else:
                 dir_element = existing_dir
-        component_id = file_entry["component_id"]
+        component_id = f"Component_{uuid.uuid4().hex}"
         component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
         etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=file_entry["source"], KeyPath="yes")
         etree.SubElement(feature, "ComponentRef", Id=component_id)
