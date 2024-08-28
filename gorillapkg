@@ -91,9 +91,11 @@ def create_project_directory(project_dir):
     if project_path.exists():
         print(f"Error: Directory {project_dir} already exists.")
         return False
-    project_path.mkdir()
-    (project_path / "payload").mkdir()
-    (project_path / "scripts").mkdir()
+
+    # Create project directories with exist_ok=True for robustness
+    os.makedirs(project_path / "payload", exist_ok=True)
+    os.makedirs(project_path / "scripts", exist_ok=True)
+    
     default_build_info = {
         "product": {
             "name": "PkgName",
@@ -227,7 +229,6 @@ def generate_wix_files(project_dir, config):
     # Handle scripts (if any) using generate_custom_actions_wxs
     actions = get_scripts(project_dir)
     fragment = etree.SubElement(wix, "Fragment")
-    
     if actions:
         custom_actions_wxs = generate_custom_actions_wxs(actions, fragment)
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
@@ -236,12 +237,12 @@ def generate_wix_files(project_dir, config):
                 etree.SubElement(install_execute_sequence, "Custom", Action=action_id, Before="InstallFiles")
             elif script_type == 'postinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=action_id, After="InstallFiles")
-        
+            
         # Ensure that the script components are referenced in the Feature
         for script_type, _ in actions.items():
             file_id = f"{script_type.capitalize()}Script"
             etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component")
-                        
+
     # Add payload files to the package
     payload_dir = Path(project_dir) / "payload"
     for file_path in payload_dir.rglob('*'):
@@ -300,18 +301,23 @@ def generate_custom_actions_wxs(actions, fragment):
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
-    if verbose:
-        command += " -v"
-    log(f"Executing command: {command}")
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        log(f"Command failed with return code {result.returncode}: {result.stderr}", error=True)
+    try:
+        if verbose:
+            command += " -v"
+        log(f"Executing command: {command}")
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        result.check_returncode()  # Will raise CalledProcessError if return code is not 0
         if not quiet:
-            log(f"Output: {result.stdout}", error=True)
-        return False, result.stderr
-    if not quiet:
-        log(result.stdout)
-    return True, result.stdout
+            log(result.stdout)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        log(f"Command failed with return code {e.returncode}: {e.stderr}", error=True)
+        if not quiet:
+            log(f"Output: {e.stdout}", error=True)
+        return False, e.stderr
+    except Exception as e:
+        log(f"An unexpected error occurred: {str(e)}", error=True)
+        return False, str(e)
 
 def verify_wxs_files(project_dir, has_scripts):
     src_dir = Path(project_dir) / "src"
@@ -377,7 +383,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
     else:
         output_dir = Path(output_dir)
     
-    output_dir.mkdir(exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
