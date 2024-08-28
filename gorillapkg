@@ -221,8 +221,9 @@ def generate_wix_files(project_dir, config):
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
 
-    # Define TempFolder in the directory structure only if scripts exist
+    # Define TempFolder in the directory structure if scripts exist
     actions = get_scripts(project_dir)
+    temp_folder_dir = None
     if actions:
         temp_folder_dir = etree.SubElement(current_dir, "Directory", Id="TempFolder", Name="Temp")
 
@@ -231,10 +232,10 @@ def generate_wix_files(project_dir, config):
 
     # Handle scripts (if any) using generate_custom_actions_wxs
     fragment = etree.SubElement(wix, "Fragment")
+    install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
+
     if actions:
-        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
         custom_actions_wxs = generate_custom_actions_wxs(actions, temp_folder_dir, fragment)
-        
         for custom_action in custom_actions_wxs:
             install_execute_sequence.append(custom_action)
         
@@ -292,7 +293,33 @@ def generate_custom_actions_wxs(actions, temp_folder_dir, fragment):
         # Create the CustomAction to run the script from TempFolder
         run_action_id = f"Run{script_type.capitalize()}"
         exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[%TempFolder]\\{file_id}.ps1'"
-        custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, FileRef=file_element.attrib['Id'],
+        custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, FileKey=file_element.attrib['Id'],
+                                         Execute="deferred", Return="check", Impersonate="no", ExeCommand=exe_command)
+        
+        # Determine the sequence placement for the custom action
+        if script_type == 'preinstall':
+            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
+        elif script_type == 'postinstall':
+            etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
+
+        custom_actions.append(custom_action)
+
+    return custom_actions
+
+# Function to generate custom actions for PowerShell scripts and return the actions to be added to InstallExecuteSequence
+def generate_custom_actions_wxs(actions, temp_folder_dir, fragment):
+    custom_actions = []
+    for script_type, script_path in actions.items():
+        file_id = f"{script_type.capitalize()}Script"
+        
+        # Create the Component for the script file
+        component = etree.SubElement(temp_folder_dir, "Component", Id=f"{file_id}Component", Guid=str(uuid.uuid4()))
+        file_element = etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
+        
+        # Create the CustomAction to run the script from TempFolder
+        run_action_id = f"Run{script_type.capitalize()}"
+        exe_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[%TempFolder]\\{file_id}.ps1'"
+        custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, FileKey=file_element.attrib['Id'],
                                          Execute="deferred", Return="check", Impersonate="no", ExeCommand=exe_command)
         
         # Determine the sequence placement for the custom action
