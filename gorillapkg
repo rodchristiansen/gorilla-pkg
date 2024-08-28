@@ -234,9 +234,13 @@ def generate_wix_files(project_dir, config):
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
     has_scripts = scripts_dir.exists() and any(scripts_dir.rglob('*.ps1'))
+    fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
-        temp_folder = etree.SubElement(package, "StandardDirectory", Id="TempFolder")
+        temp_folder = etree.SubElement(fragment, "StandardDirectory", Id="TempFolder")
         add_files_to_directory(temp_folder, scripts_dir, feature, is_script=True)
+
+        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
+        add_custom_actions(fragment, install_execute_sequence)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -254,6 +258,18 @@ def generate_wix_files(project_dir, config):
         sys.exit(1)
     
     return output_path
+
+def add_custom_actions(fragment, install_execute_sequence):
+    # Adding predefined actions
+    custom_actions = {
+        "RunPreinstall": "Before=InstallFiles",
+        "RunPostinstall": "After=InstallFiles"
+    }
+    
+    for action_name, sequence in custom_actions.items():
+        action_element = fragment.find(f".//CustomAction[@Id='{action_name}']")
+        if action_element is not None:
+            etree.SubElement(install_execute_sequence, "Custom", Action=action_name, **{sequence.split('=')[0]: sequence.split('=')[1]})
 
 def add_files_to_directory(current_dir, source_dir, feature, is_script=False):
     for file_path in source_dir.rglob('*'):
