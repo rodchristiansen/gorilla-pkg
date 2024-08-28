@@ -232,6 +232,7 @@ def generate_wix_files(project_dir, config):
     if actions:
         custom_actions_wxs = generate_custom_actions_wxs(actions, fragment)
         install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
+
         for script_type, copy_action_id, run_action_id in custom_actions_wxs:
             if script_type == 'preinstall':
                 etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
@@ -294,17 +295,16 @@ def generate_custom_actions_wxs(actions, fragment):
         # Create the CustomAction to copy the script to TempFolder
         copy_action_id = f"Copy{script_type.capitalize()}"
         copy_command = f"cmd.exe /c copy '[#{file_id}]' '[%TempFolder]\\{script_type}.ps1'"
-        copy_custom_action = etree.SubElement(fragment, "CustomAction", Id=copy_action_id, Directory="TempFolder",
-                                              Execute="immediate", Return="check", ExeCommand=copy_command)
+        etree.SubElement(fragment, "CustomAction", Id=copy_action_id, Directory="TempFolder",
+                         Execute="immediate", Return="check", Impersonate="no", ExeCommand=copy_command)
 
         # Create the CustomAction to run the script from TempFolder
         run_action_id = f"Run{script_type.capitalize()}"
         run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[%TempFolder]\\{script_type}.ps1'"
-        run_custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="TempFolder",
-                                             Execute="deferred", Return="check", ExeCommand=run_command)
+        etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="TempFolder",
+                         Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
 
-        custom_actions.append((script_type, copy_action_id))
-        custom_actions.append((script_type, run_action_id))
+        custom_actions.append((script_type, copy_action_id, run_action_id))
 
     return custom_actions
 
