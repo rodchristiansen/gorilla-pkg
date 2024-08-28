@@ -298,9 +298,9 @@ def generate_custom_actions_wxs(actions, temp_folder_dir, fragment):
         
         # Determine the sequence placement for the custom action
         if script_type == 'preinstall':
-            etree.SubElement(fragment, "Custom", Action=run_action_id, Before="InstallFiles")
+            etree.SubElement(fragment, "InstallExecuteSequence", Action=run_action_id, Before="InstallFiles")
         elif script_type == 'postinstall':
-            etree.SubElement(fragment, "Custom", Action=run_action_id, After="InstallFiles")
+            etree.SubElement(fragment, "InstallExecuteSequence", Action=run_action_id, After="InstallFiles")
 
         custom_actions.append(custom_action)
 
