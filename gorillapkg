@@ -217,23 +217,26 @@ def generate_wix_files(project_dir, config):
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the dynamic payload directory structure
+    # Create the initial directory structure
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
-        for part in Path(remaining_path).parts:
-            dir_id, dir_name = generate_directory_id_name(part)
-            current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+
+        # Add a directory element for each part of the remaining path, if any
+        if remaining_path:
+            for part in Path(remaining_path).parts:
+                dir_id, dir_name = generate_directory_id_name(part)
+                current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+        else:
+            # If no remaining path, ensure there's at least one directory element
+            current_dir = etree.SubElement(install_folder, "Directory", Id="TempDir", Name="Temp")
     else:
+        # Default to ProgramFilesFolder and create full path
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
         current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-
-    # Ensure the <Directory> tag is created
-    if not current_dir.find(".//Directory"):
-        directory = etree.SubElement(current_dir, "Directory", Id="dir_Temp", Name="Temp")
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
@@ -241,7 +244,7 @@ def generate_wix_files(project_dir, config):
     # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
     if payload_dir.exists() and any(payload_dir.rglob('*')):
-        add_files_to_directory(directory, payload_dir, feature)
+        add_files_to_directory(current_dir, payload_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
@@ -249,7 +252,12 @@ def generate_wix_files(project_dir, config):
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
         temp_folder = etree.SubElement(fragment, "StandardDirectory", Id="TempFolder")
-        add_files_to_directory(temp_folder, scripts_dir, feature, is_script=True, fragment=fragment)
+        
+        # Dynamically set the directory name using the package name from build-info.yaml
+        pkg_name = config['product']['name']
+        temp_dir = etree.SubElement(temp_folder, "Directory", Id="TempScripts", Name=f"{pkg_name}_InstallScripts")
+        
+        add_files_to_directory(temp_dir, scripts_dir, feature, is_script=True, fragment=fragment)
 
     # Ensure the InstallExecuteSequence exists in the fragment
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
