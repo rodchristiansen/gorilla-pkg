@@ -183,14 +183,15 @@ def generate_directory_id_name(part):
 
 # Function to find the matching standard directory
 def find_standard_directory(install_path, standard_directories):
-    normalized_install_path = os.path.normpath(install_path)
+    normalized_install_path = os.path.normpath(install_path).lower()
     for standard_path, directory_id in standard_directories.items():
-        normalized_standard_path = os.path.normpath(standard_path)
-        if normalized_install_path.startswith(normalized_standard_path):
-            # Return the directory_id and the remaining part of the path after the standard directory
+        normalized_standard_path = os.path.normpath(standard_path).lower()
+        if normalized_install_path == normalized_standard_path:
+            return directory_id, ""  # Exact match for a standard directory
+        elif normalized_install_path.startswith(normalized_standard_path):
             remaining_path = normalized_install_path[len(normalized_standard_path):].lstrip(os.sep)
             return directory_id, remaining_path
-    return None, install_path  # No standard directory found, return the full path as is
+    return None, install_path
 
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
