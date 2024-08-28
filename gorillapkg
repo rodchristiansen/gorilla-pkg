@@ -218,7 +218,6 @@ def generate_wix_files(project_dir, config):
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
     # Define the dynamic payload directory structure
-    current_dir = None
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
@@ -232,13 +231,14 @@ def generate_wix_files(project_dir, config):
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
 
-    # Define the main feature
-    feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
+    # Ensure the <Directory> tag is created
+    if not current_dir.find(".//Directory"):
+        directory = etree.SubElement(current_dir, "Directory", Id="dir_Temp", Name="Temp")
 
     # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
     if payload_dir.exists() and any(payload_dir.rglob('*')):
-        add_files_to_directory(current_dir, payload_dir, feature)
+        add_files_to_directory(directory, payload_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
