@@ -208,7 +208,7 @@ def generate_wix_files(project_dir, config):
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the dynamic payload and scripts directory structure
+    # Define the dynamic payload directory structure
     current_dir = None
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
@@ -233,8 +233,10 @@ def generate_wix_files(project_dir, config):
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
-    if scripts_dir.exists() and any(scripts_dir.rglob('*.ps1')):
-        add_files_to_directory(current_dir, scripts_dir, feature, is_script=True)
+    has_scripts = scripts_dir.exists() and any(scripts_dir.rglob('*.ps1'))
+    if has_scripts:
+        temp_folder = etree.SubElement(package, "StandardDirectory", Id="TempFolder")
+        add_files_to_directory(temp_folder, scripts_dir, feature, is_script=True)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -247,7 +249,6 @@ def generate_wix_files(project_dir, config):
     log(xml_str.decode())
     
     # Verify the generated XML
-    has_scripts = scripts_dir.exists() and any(scripts_dir.rglob('*.ps1'))
     if not verify_wxs_files(project_dir, has_scripts):
         log("Verification of WiX source files failed, aborting MSI creation.", error=True)
         sys.exit(1)
@@ -255,22 +256,17 @@ def generate_wix_files(project_dir, config):
     return output_path
 
 def add_files_to_directory(current_dir, source_dir, feature, is_script=False):
-    for file_path in source_dir.rglob('*.ps1' if is_script else '*'):
+    for file_path in source_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
-            if is_script:
-                # Place the script in the TempFolder
-                dir_element = etree.Element("StandardDirectory", Id="TempFolder")
-            else:
-                dir_element = current_dir
-                for part in relative_path.parent.parts:
-                    dir_id, dir_name = generate_directory_id_name(part)
-                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                    if existing_dir is None:
-                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                    else:
-                        dir_element = existing_dir
-
+            dir_element = current_dir
+            for part in relative_path.parent.parts:
+                dir_id, dir_name = generate_directory_id_name(part)
+                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                if existing_dir is None:
+                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                else:
+                    dir_element = existing_dir
             component_id = f"Component_{uuid.uuid4().hex}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             file_id = f"File_{uuid.uuid4().hex}"
