@@ -255,17 +255,22 @@ def generate_wix_files(project_dir, config):
     return output_path
 
 def add_files_to_directory(current_dir, source_dir, feature, is_script=False):
-    for file_path in source_dir.rglob('*'):
+    for file_path in source_dir.rglob('*.ps1' if is_script else '*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
-            dir_element = current_dir
-            for part in relative_path.parent.parts:
-                dir_id, dir_name = generate_directory_id_name(part)
-                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                if existing_dir is None:
-                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                else:
-                    dir_element = existing_dir
+            if is_script:
+                # Place the script in the TempFolder
+                dir_element = etree.Element("StandardDirectory", Id="TempFolder")
+            else:
+                dir_element = current_dir
+                for part in relative_path.parent.parts:
+                    dir_id, dir_name = generate_directory_id_name(part)
+                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                    if existing_dir is None:
+                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                    else:
+                        dir_element = existing_dir
+
             component_id = f"Component_{uuid.uuid4().hex}"
             component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
             file_id = f"File_{uuid.uuid4().hex}"
@@ -283,8 +288,8 @@ def add_script_custom_action(dir_element, file_id, script_name):
         install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
     
     run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
-    run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File 'ProgramData\\{script_name}'"
-    etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="CommonAppDataFolder",
+    run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[TempFolder]{script_name}'"
+    etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="TempFolder",
                      Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
     
     if "preinstall" in script_name:
