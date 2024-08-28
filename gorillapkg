@@ -192,7 +192,7 @@ def find_standard_directory(install_path, standard_directories):
             return directory_id, remaining_path
     return None, install_path  # No standard directory found, return the full path as is
 
-# Function to generate WiX XML files, including embedding PowerShell scripts as binaries
+# Update to generate_wix_files function to handle scripts
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     install_path = config['install_path'].replace("[username]", os.getlogin())
@@ -209,7 +209,8 @@ def generate_wix_files(project_dir, config):
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the directory structure
+    # Define the dynamic payload directory structure
+    current_dir = None
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
@@ -226,43 +227,54 @@ def generate_wix_files(project_dir, config):
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Handle scripts (if any) using generate_custom_actions_wxs
-    actions = get_scripts(project_dir)
-    fragment = etree.SubElement(wix, "Fragment")
-    if actions:
-        custom_actions_wxs = generate_custom_actions_wxs(actions, fragment)
-        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-
-        for script_type, copy_action_id, run_action_id in custom_actions_wxs:
-            if script_type == 'preinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, Before="InstallFiles")
-                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
-            elif script_type == 'postinstall':
-                etree.SubElement(install_execute_sequence, "Custom", Action=copy_action_id, After="InstallFiles")
-                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-            
-        # Ensure that the script components are referenced in the Feature
-        for script_type, _ in actions.items():
-            file_id = f"{script_type.capitalize()}Script"
-            etree.SubElement(feature, "ComponentRef", Id=f"{file_id}Component")
-
-    # Add payload files to the package
+    # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
-    for file_path in payload_dir.rglob('*'):
-        if file_path.is_file():
-            relative_path = file_path.relative_to(payload_dir)
-            dir_element = current_dir
-            for part in relative_path.parent.parts:
-                dir_id, dir_name = generate_directory_id_name(part)
-                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                if existing_dir is None:
-                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                else:
-                    dir_element = existing_dir
+    if payload_dir.exists() and any(payload_dir.rglob('*')):
+        for file_path in payload_dir.rglob('*'):
+            if file_path.is_file():
+                relative_path = file_path.relative_to(payload_dir)
+                dir_element = current_dir
+                for part in relative_path.parent.parts:
+                    dir_id, dir_name = generate_directory_id_name(part)
+                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                    if existing_dir is None:
+                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                    else:
+                        dir_element = existing_dir
+                component_id = f"Component_{uuid.uuid4().hex}"
+                component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+                etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
+                etree.SubElement(feature, "ComponentRef", Id=component_id)
+
+    # Handle scripts in TempFolder if they exist
+    actions = get_scripts(project_dir)
+    if actions:
+        temp_folder = etree.SubElement(package, "StandardDirectory", Id="CommonAppDataFolder")
+        temp_dir = etree.SubElement(temp_folder, "Directory", Id="dir_Temp", Name="Temp")
+        script_components = []
+
+        for script_type, script_path in actions.items():
             component_id = f"Component_{uuid.uuid4().hex}"
-            component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-            etree.SubElement(component, "File", Id=f"File_{uuid.uuid4().hex}", Source=str(file_path), KeyPath="yes")
+            file_id = f"File_{uuid.uuid4().hex}"
+            component = etree.SubElement(temp_dir, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+            etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
             etree.SubElement(feature, "ComponentRef", Id=component_id)
+            script_components.append((script_type, file_id))
+
+        # Add custom actions for scripts
+        fragment = etree.SubElement(wix, "Fragment")
+        install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
+        for script_type, file_id in script_components:
+            run_action_id = f"Run{script_type.capitalize()}"
+            script_filename = f"{script_type}.ps1"
+            run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File 'ProgramData\\{script_filename}'"
+            etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="CommonAppDataFolder",
+                             Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
+            
+            if "preinstall" in script_type:
+                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
+            else:
+                etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -281,32 +293,6 @@ def generate_wix_files(project_dir, config):
         sys.exit(1)
     
     return output_path
-
-# Function to generate custom actions for PowerShell scripts and return the actions to be added to InstallExecuteSequence
-def generate_custom_actions_wxs(actions, fragment):
-    custom_actions = []
-    for script_type, script_path in actions.items():
-        file_id = f"{script_type.capitalize()}Script"
-
-        # Create the Component for the script file
-        component = etree.SubElement(fragment, "Component", Id=f"{file_id}Component", Guid=str(uuid.uuid4()))
-        etree.SubElement(component, "File", Id=file_id, Source=str(script_path), KeyPath="yes")
-
-        # Create the CustomAction to copy the script to TempFolder
-        copy_action_id = f"Copy{script_type.capitalize()}"
-        copy_command = f"cmd.exe /c copy '[#{file_id}]' '[%TempFolder]\\{script_type}.ps1'"
-        etree.SubElement(fragment, "CustomAction", Id=copy_action_id, Directory="TempFolder",
-                         Execute="immediate", Return="check", Impersonate="no", ExeCommand=copy_command)
-
-        # Create the CustomAction to run the script from TempFolder
-        run_action_id = f"Run{script_type.capitalize()}"
-        run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[%TempFolder]\\{script_type}.ps1'"
-        etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="TempFolder",
-                         Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
-
-        custom_actions.append((script_type, copy_action_id, run_action_id))
-
-    return custom_actions
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
