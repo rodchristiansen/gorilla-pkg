@@ -217,23 +217,23 @@ def generate_wix_files(project_dir, config):
                                Compressed="yes")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Define the dynamic payload directory structure
+    # Create the initial directory structure
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = install_folder
-        for part in Path(remaining_path).parts:
-            dir_id, dir_name = generate_directory_id_name(part)
-            current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+
+        # Only create subdirectories if needed, avoiding redundant "Temp" folder
+        if remaining_path:
+            for part in Path(remaining_path).parts:
+                dir_id, dir_name = generate_directory_id_name(part)
+                current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
     else:
+        # Default to ProgramFilesFolder and create full path
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
         current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
         for part in Path(install_path).parts:
             dir_id, dir_name = generate_directory_id_name(part)
             current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-
-    # Ensure the <Directory> tag is created
-    if not current_dir.find(".//Directory"):
-        directory = etree.SubElement(current_dir, "Directory", Id="dir_Temp", Name="Temp")
 
     # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
@@ -241,7 +241,7 @@ def generate_wix_files(project_dir, config):
     # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
     if payload_dir.exists() and any(payload_dir.rglob('*')):
-        add_files_to_directory(directory, payload_dir, feature)
+        add_files_to_directory(current_dir, payload_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
