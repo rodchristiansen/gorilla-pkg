@@ -285,28 +285,32 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
     for file_path in source_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
-            dir_element = current_dir
-            for part in relative_path.parent.parts:
-                dir_id, dir_name = generate_directory_id_name(part)
-                existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                if existing_dir is None:
-                    dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                else:
-                    dir_element = existing_dir
-            component_id = f"Component_{uuid.uuid4().hex}"
-            component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-            file_id = f"File_{uuid.uuid4().hex}"
-            etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
-            etree.SubElement(feature, "ComponentRef", Id=component_id)
-
             if is_script and fragment is not None:
-                add_script_custom_action(fragment, file_id, relative_path.name)
+                # Add script as Binary
+                with open(file_path, 'rb') as script_file:
+                    script_content = base64.b64encode(script_file.read()).decode('utf-8')
+                binary = etree.SubElement(fragment, "Binary", Id=relative_path.name, SourceFile=str(file_path))
+                add_script_custom_action(fragment, relative_path.name)
+            else:
+                dir_element = current_dir
+                for part in relative_path.parent.parts:
+                    dir_id, dir_name = generate_directory_id_name(part)
+                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                    if existing_dir is None:
+                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                    else:
+                        dir_element = existing_dir
+                component_id = f"Component_{uuid.uuid4().hex}"
+                component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+                file_id = f"File_{uuid.uuid4().hex}"
+                etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
+                etree.SubElement(feature, "ComponentRef", Id=component_id)
 
-def add_script_custom_action(fragment, file_id, script_name):
-    # Add custom action for running the script
+def add_script_custom_action(fragment, script_name):
+    # Add custom action for running the script from Binary
     run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
-    run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File '[TempFolder]{script_name}'"
-    custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, Directory="TempFolder",
+    run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\"[Binary]{script_name}\")) | Out-File -FilePath $env:TEMP\\{script_name}; powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File $env:TEMP\\{script_name}"
+    custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryKey=script_name,
                                      Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
 
     # Ensure the InstallExecuteSequence exists
