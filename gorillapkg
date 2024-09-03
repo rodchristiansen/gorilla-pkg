@@ -310,7 +310,7 @@ def add_script_custom_action(fragment, script_name):
     # Add custom action for running the script from Binary
     run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
     run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\"[Binary]{script_name}\")) | Out-File -FilePath $env:TEMP\\{script_name}; powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File $env:TEMP\\{script_name}"
-    custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryKey=script_name,
+    custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=script_name,
                                      Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
 
     # Ensure the InstallExecuteSequence exists
