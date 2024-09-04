@@ -251,13 +251,8 @@ def generate_wix_files(project_dir, config):
     has_scripts = scripts_dir.exists() and any(scripts_dir.rglob('*.ps1'))
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
-        temp_folder = etree.SubElement(fragment, "StandardDirectory", Id="TempFolder")
-        
-        # Dynamically set the directory name using the package name from build-info.yaml
-        pkg_name = config['product']['name']
-        temp_dir = etree.SubElement(temp_folder, "Directory", Id="TempScripts", Name=f"{pkg_name}_InstallScripts")
-        
-        add_files_to_directory(temp_dir, scripts_dir, feature, is_script=True, fragment=fragment)
+        for script_file in scripts_dir.glob('*.ps1'):
+            add_files_to_directory(None, scripts_dir, feature, is_script=True, fragment=fragment)
 
     # Ensure the InstallExecuteSequence exists in the fragment
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
@@ -281,15 +276,50 @@ def generate_wix_files(project_dir, config):
     
     return output_path
 
+def add_script_custom_action(fragment, script_name):
+    # Add custom action for running the script from Binary
+    run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
+    run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
+        $ErrorActionPreference = 'Stop';
+        try {{
+            $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[Binary]{script_name}'));
+            $scriptContent | Invoke-Expression;
+        }} catch {{
+            Write-Error $_.Exception.Message;
+            exit 1;
+        }} | Out-File -Append '$env:TEMP\\{script_name}.log';
+    }}" """
+    
+    custom_action = etree.SubElement(fragment, "CustomAction", 
+                                     Id=run_action_id, 
+                                     BinaryRef=script_name,
+                                     Execute="deferred", 
+                                     Return="check", 
+                                     Impersonate="no", 
+                                     ExeCommand=run_command)
+    
+    # Add a condition to ensure the custom action only runs during installation
+    etree.SubElement(custom_action, "Condition")("NOT Installed")
+
+    # Ensure the InstallExecuteSequence exists
+    install_execute_sequence = fragment.find("./InstallExecuteSequence")
+    if install_execute_sequence is None:
+        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
+    
+    # Add the custom action to the correct position
+    if "preinstall" in script_name.lower():
+        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
+    elif "postinstall" in script_name.lower():
+        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
+
 def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None):
     for file_path in source_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
             if is_script and fragment is not None:
                 # Add script as Binary
-                with open(file_path, 'rb') as script_file:
-                    script_content = base64.b64encode(script_file.read()).decode('utf-8')
-                binary = etree.SubElement(fragment, "Binary", Id=relative_path.stem, SourceFile=str(file_path))
+                binary_id = f"Binary_{relative_path.stem}"
+                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
                 add_script_custom_action(fragment, relative_path.name)
             else:
                 dir_element = current_dir
@@ -305,24 +335,6 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 file_id = f"File_{uuid.uuid4().hex}"
                 etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
-
-def add_script_custom_action(fragment, script_name):
-    # Add custom action for running the script from Binary
-    run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
-    run_command = f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\"[Binary]{script_name}\")) | Out-File -FilePath $env:TEMP\\{script_name}; powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File $env:TEMP\\{script_name}"
-    custom_action = etree.SubElement(fragment, "CustomAction", Id=run_action_id, BinaryRef=script_name,
-                                     Execute="deferred", Return="check", Impersonate="no", ExeCommand=run_command)
-
-    # Ensure the InstallExecuteSequence exists
-    install_execute_sequence = fragment.find("./InstallExecuteSequence")
-    if install_execute_sequence is None:
-        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
-    
-    # Add the custom action to the correct position
-    if "preinstall" in script_name:
-        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
-    else:
-        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
 
 def add_custom_actions(fragment, install_execute_sequence):
     # Adding predefined actions
@@ -410,7 +422,7 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
-# Update the build_msi function to include verbose logging and correct embedding
+# Build MSI function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
@@ -442,6 +454,10 @@ def build_msi(project_dir, wix_path, output_dir=None):
         if not sign_msi(msi_file, config['identity']):
             log("MSI signing process failed.", error=True)
             return
+            
+    except Exception as e:
+        log(f"An error occurred during MSI creation: {str(e)}", error=True)
+        return
     
 #     # Clean up the src directory and Package.wxs file after the build
 #     log(f"Cleaning up the src directory: {src_dir}")
