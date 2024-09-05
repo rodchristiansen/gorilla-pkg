@@ -230,26 +230,20 @@ def add_custom_actions(project_dir, fragment):
         binary_id = f"Binary_{script_file.stem}"
         
         # Add custom action
-        run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
-            $ErrorActionPreference = 'Stop';
-            try {{
-                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
-                $scriptContent | Invoke-Expression;
-            }} catch {{
-                Write-Error $_.Exception.Message;
-                exit 1;
-            }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';
-        }}" """
-        
         custom_action = etree.SubElement(fragment, "CustomAction", 
                                          Id=action_id, 
                                          BinaryRef=binary_id,
+                                         DllEntry="WixQuietExec",
                                          Execute="deferred", 
                                          Return="check", 
-                                         Impersonate="no",
-                                         Script="powershell")
+                                         Impersonate="no")
         
-        etree.SubElement(custom_action, "CDataString").text = etree.CDATA(run_command)
+        # Add command as a separate property
+        property_id = f"{action_id}Cmd"
+        etree.SubElement(fragment, "Property", Id=property_id, Value=f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command \"& {{$ErrorActionPreference = 'Stop'; try {{ $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#{binary_id}]')); $scriptContent | Invoke-Expression; }} catch {{ Write-Error $_.Exception.Message; exit 1; }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';}}\"")
+        
+        # Set the property for the custom action
+        etree.SubElement(fragment, "SetProperty", Id=action_id, Value=f"[{property_id}]", After="InstallInitialize")
 
         # Add to InstallExecuteSequence
         custom_element_attrs = {"Action": action_id, "Condition": "NOT Installed"}
