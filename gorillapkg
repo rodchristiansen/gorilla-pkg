@@ -513,6 +513,35 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
+# Function to validate the generated WiX XML
+def validate_wix_xml(xml_string, config, has_payload, has_preinstall, has_postinstall):
+    root = etree.fromstring(xml_string)
+    ns = {"wix": "http://wixtoolset.org/schemas/v4/wxs"}
+
+    # Check basic structure
+    assert root.find(".//wix:Package", ns) is not None, "Missing Package element"
+    assert root.find(".//wix:Feature", ns) is not None, "Missing Feature element"
+
+    # Check payload
+    if has_payload:
+        assert root.find(".//wix:Component", ns) is not None, "Missing Component element for payload"
+    else:
+        assert root.find(".//wix:CreateFolder", ns) is not None, "Missing CreateFolder element for no-payload package"
+
+    # Check scripts
+    if has_preinstall:
+        assert root.find(".//wix:CustomAction[@Id='RunPreinstall']", ns) is not None, "Missing preinstall CustomAction"
+    if has_postinstall:
+        assert root.find(".//wix:CustomAction[@Id='RunPostinstall']", ns) is not None, "Missing postinstall CustomAction"
+
+    # Check build info
+    package = root.find(".//wix:Package", ns)
+    assert package.get("Name") == config['product']['name'], "Incorrect product name"
+    assert package.get("Manufacturer") == config['product']['manufacturer'], "Incorrect manufacturer"
+    assert package.get("Version") is not None, "Missing version"
+
+    log("WiX XML validation passed")
+
 # Usage in main function:
 xml_string = generate_wix_files(project_dir, config)
 validate_wix_xml(xml_string, config, has_payload, has_preinstall, has_postinstall)
