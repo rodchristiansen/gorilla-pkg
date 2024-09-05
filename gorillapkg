@@ -430,6 +430,7 @@ def sign_msi(msi_file, identity):
     return True
 
 # Build MSI function to include verbose logging and correct embedding
+# Build MSI function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
@@ -461,14 +462,10 @@ def build_msi(project_dir, wix_path, output_dir=None):
         if not sign_msi(msi_file, config['identity']):
             log("MSI signing process failed.", error=True)
             return
-            
-    except Exception as e:
-        log(f"An error occurred during MSI creation: {str(e)}", error=True)
-        return
 
-    # Clean up the src directory and Package.wxs file after the build
-    log(f"Cleaning up the src directory: {src_dir}")
     try:
+        # Clean up the src directory and Package.wxs file after the build
+        log(f"Cleaning up the src directory: {src_dir}")
         shutil.rmtree(src_dir)
         log("src directory and Package.wxs file have been removed.")
     except Exception as e:
