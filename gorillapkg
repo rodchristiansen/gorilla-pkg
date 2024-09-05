@@ -281,10 +281,15 @@ def add_custom_actions(project_dir, fragment):
         condition.text = "NOT Installed"
 
         # Add to InstallExecuteSequence
-        etree.SubElement(install_execute_sequence, "Custom", 
-                         Action=action_id, 
-                         Before=sequence_ref if sequence == "Before" else None,
-                         After=sequence_ref if sequence == "After" else None)
+        custom_element_attrs = {"Action": action_id}
+        if sequence == "Before":
+            custom_element_attrs["Before"] = sequence_ref
+        elif sequence == "After":
+            custom_element_attrs["After"] = sequence_ref
+        
+        etree.SubElement(install_execute_sequence, "Custom", **custom_element_attrs)
+
+    log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
 
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
@@ -339,11 +344,15 @@ def generate_wix_files(project_dir, config):
     scripts_dir = Path(project_dir) / "scripts"
     has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
     log(f"Scripts directory exists: {scripts_dir.exists()}, Has scripts: {has_scripts}")
+    if has_scripts:
+        script_files = list(scripts_dir.glob('*.ps1'))
+        log(f"Found {len(script_files)} script(s): {', '.join(str(f) for f in script_files)}")
     
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
         for script_file in scripts_dir.glob('*.ps1'):
             add_script_to_binary(fragment, script_file)
+            log(f"Added script to binary: {script_file}")
 
     # Add custom actions for scripts
     if has_scripts:
