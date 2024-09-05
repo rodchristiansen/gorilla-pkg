@@ -337,8 +337,8 @@ def generate_wix_files(project_dir, config):
     if has_payload:
         add_files_to_directory(current_dir, payload_dir, feature)
     else:
-        # Add a dummy component if there's no payload
-        add_dummy_component(current_dir, feature)
+        # Add a component to create the directory even if there's no payload
+        add_empty_directory_component(current_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
@@ -374,8 +374,8 @@ def generate_wix_files(project_dir, config):
     
     return output_path
 
-def add_dummy_component(current_dir, feature):
-    component_id = "DummyComponent"
+def add_empty_directory_component(current_dir, feature):
+    component_id = "EmptyDirectoryComponent"
     component = etree.SubElement(current_dir, "Component", Id=component_id, Guid=str(uuid.uuid4()))
     etree.SubElement(component, "CreateFolder")
     etree.SubElement(feature, "ComponentRef", Id=component_id)
@@ -487,7 +487,6 @@ def verify_wxs_files(project_dir, has_scripts):
             f"{{{NS_WIX}}}Directory",
             f"{{{NS_WIX}}}Component",
             f"{{{NS_WIX}}}ComponentRef",
-            f"{{{NS_WIX}}}File"
         ]
 
         if has_scripts:
@@ -523,7 +522,6 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
-# Build MSI function to include verbose logging and correct embedding
 # Build MSI function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
