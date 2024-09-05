@@ -324,6 +324,9 @@ def generate_wix_files(project_dir, config):
     has_payload = payload_dir.exists() and any(payload_dir.rglob('*'))
     if has_payload:
         add_files_to_directory(current_dir, payload_dir, feature)
+    else:
+        # Add a dummy component if there's no payload
+        add_dummy_component(current_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
@@ -331,7 +334,8 @@ def generate_wix_files(project_dir, config):
     
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
-        add_files_to_directory(None, scripts_dir, feature, is_script=True, fragment=fragment)
+        for script_file in scripts_dir.glob('*.ps1'):
+            add_script_to_binary(fragment, script_file)
 
     # Ensure the InstallExecuteSequence exists in the fragment
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
@@ -353,6 +357,64 @@ def generate_wix_files(project_dir, config):
     log(xml_str.decode())
     
     return output_path
+
+def add_dummy_component(current_dir, feature):
+    component_id = "DummyComponent"
+    component = etree.SubElement(current_dir, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+    etree.SubElement(component, "CreateFolder")
+    etree.SubElement(feature, "ComponentRef", Id=component_id)
+
+def add_script_to_binary(fragment, script_file):
+    binary_id = f"Binary_{script_file.stem}"
+    etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_file))
+
+def add_custom_actions(fragment, install_execute_sequence):
+    scripts_dir = Path(project_dir) / "scripts"
+    
+    for script_file in scripts_dir.glob('*.ps1'):
+        script_name = script_file.stem.lower()
+        if "preinstall" in script_name:
+            action_id = "RunPreinstall"
+            sequence = "Before"
+            sequence_ref = "InstallFiles"
+        elif "postinstall" in script_name:
+            action_id = "RunPostinstall"
+            sequence = "After"
+            sequence_ref = "InstallFiles"
+        else:
+            continue  # Skip if not pre or post install script
+
+        binary_id = f"Binary_{script_file.stem}"
+        
+        # Add custom action
+        run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
+            $ErrorActionPreference = 'Stop';
+            try {{
+                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
+                $scriptContent | Invoke-Expression;
+            }} catch {{
+                Write-Error $_.Exception.Message;
+                exit 1;
+            }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';
+        }}" """
+        
+        custom_action = etree.SubElement(fragment, "CustomAction", 
+                                         Id=action_id, 
+                                         BinaryKey=binary_id,
+                                         Execute="deferred", 
+                                         Return="check", 
+                                         Impersonate="no",
+                                         ExeCommand=run_command)
+
+        # Add a condition to ensure the custom action only runs during installation
+        condition = etree.SubElement(custom_action, "Condition")
+        condition.text = "NOT Installed"
+
+        # Add to InstallExecuteSequence
+        etree.SubElement(install_execute_sequence, "Custom", 
+                         Action=action_id, 
+                         Before=sequence_ref if sequence == "Before" else None,
+                         After=sequence_ref if sequence == "After" else None)
 
 def add_script_custom_action(fragment, script_name):
     # Add custom action for running the script from Binary
@@ -418,18 +480,6 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 
                 # Reference each component in the feature
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
-
-def add_custom_actions(fragment, install_execute_sequence):
-    # Adding predefined actions
-    custom_actions = {
-        "RunPreinstall": "Before=InstallFiles",
-        "RunPostinstall": "After=InstallFiles"
-    }
-    
-    for action_name, sequence in custom_actions.items():
-        action_element = fragment.find(f".//CustomAction[@Id='{action_name}']")
-        if action_element is not None:
-            etree.SubElement(install_execute_sequence, "Custom", Action=action_name, **{sequence.split('=')[0]: sequence.split('=')[1]})
 
 # Function to run a subprocess and check for errors
 def run_command(command, quiet=False, verbose=False):
