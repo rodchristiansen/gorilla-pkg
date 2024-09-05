@@ -229,29 +229,56 @@ def add_custom_actions(project_dir, fragment):
 
         binary_id = f"Binary_{script_file.stem}"
         
-        # Add custom action
-        custom_action = etree.SubElement(fragment, "CustomAction", 
-                                         Id=action_id, 
-                                         BinaryRef=binary_id,
-                                         DllEntry="WixQuietExec",
-                                         Execute="deferred", 
-                                         Return="check", 
-                                         Impersonate="no")
+        # Add the script as a Binary element
+        etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_file))
         
-        # Add command as a separate property
+        # Create a property to hold the command
         property_id = f"{action_id}Cmd"
-        etree.SubElement(fragment, "Property", Id=property_id, Value=f"powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command \"& {{$ErrorActionPreference = 'Stop'; try {{ $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#{binary_id}]')); $scriptContent | Invoke-Expression; }} catch {{ Write-Error $_.Exception.Message; exit 1; }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';}}\"")
+        command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
+            $ErrorActionPreference = 'Stop';
+            $VerbosePreference = 'Continue';
+            $DebugPreference = 'Continue';
+            $logFile = 'C:\\ProgramData\\Startset\\{script_file.name}_execution.log';
+            Start-Transcript -Path $logFile -Append;
+            Write-Verbose 'Starting script execution';
+            try {{
+                Write-Verbose 'Executing script';
+                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
+                Invoke-Expression $scriptContent;
+                Write-Verbose 'Script execution completed';
+            }} catch {{
+                Write-Error "An error occurred: $($_.Exception.Message)";
+                Write-Error "Stack Trace: $($_.ScriptStackTrace)";
+                exit 1;
+            }} finally {{
+                Write-Verbose 'Ending script execution';
+                Stop-Transcript;
+            }}
+        }}" """
+        etree.SubElement(fragment, "Property", Id=property_id, Value=command)
         
-        # Set the property for the custom action
-        etree.SubElement(fragment, "SetProperty", Id=action_id, Value=f"[{property_id}]", After="InstallInitialize")
-
+        # Add custom action to set the property
+        etree.SubElement(fragment, "CustomAction",
+                         Id=f"Set_{action_id}",
+                         Property=property_id,
+                         Value=f"[{property_id}]",
+                         Execute="immediate")
+        
+        # Add the main custom action
+        etree.SubElement(fragment, "CustomAction", 
+                         Id=action_id, 
+                         BinaryKey="WixCA",
+                         DllEntry="WixQuietExec",
+                         Execute="deferred", 
+                         Return="check", 
+                         Impersonate="no")
+        
         # Add to InstallExecuteSequence
-        custom_element_attrs = {"Action": action_id, "Condition": "NOT Installed"}
-        if sequence == "Before":
-            custom_element_attrs["Before"] = sequence_ref
-        elif sequence == "After":
-            custom_element_attrs["After"] = sequence_ref
+        etree.SubElement(install_execute_sequence, "Custom", 
+                         Action=f"Set_{action_id}",
+                         Before=action_id)
         
+        custom_element_attrs = {"Action": action_id, "After": sequence_ref if sequence == "After" else None, "Before": sequence_ref if sequence == "Before" else None}
         etree.SubElement(install_execute_sequence, "Custom", **custom_element_attrs)
 
     log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
@@ -485,6 +512,10 @@ def sign_msi(msi_file, identity):
         return False
     log("MSI package signed successfully.")
     return True
+
+# Usage in main function:
+xml_string = generate_wix_files(project_dir, config)
+validate_wix_xml(xml_string, config, has_payload, has_preinstall, has_postinstall)
 
 # Build MSI function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
