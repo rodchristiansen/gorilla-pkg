@@ -306,7 +306,8 @@ def add_script_custom_action(fragment, script_name):
                                      ExeCommand=run_command)
     
     # Add a condition to ensure the custom action only runs during installation
-    etree.SubElement(custom_action, "Condition")("NOT Installed")
+    condition = etree.SubElement(custom_action, "Condition")
+    condition.text = "NOT Installed"
 
     # Ensure the InstallExecuteSequence exists
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
