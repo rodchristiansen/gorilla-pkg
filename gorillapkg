@@ -508,7 +508,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
-        return
+        return None
     
     log(f"MSI package created successfully at {msi_file}.")
     
@@ -517,7 +517,7 @@ def build_msi(project_dir, wix_path, output_dir=None):
     if 'identity' in config:
         if not sign_msi(msi_file, config['identity']):
             log("MSI signing process failed.", error=True)
-            return
+            return None
 
     try:
         # Clean up the src directory and Package.wxs file after the build
@@ -535,6 +535,8 @@ def build_msi(project_dir, wix_path, output_dir=None):
             log(f"{wixpdb_file} file has been removed.")
         except Exception as e:
             log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
+
+    return msi_file  # Return the path to the created MSI file
 
 # Main function with enhanced command-line arguments
 def main():
@@ -581,7 +583,7 @@ def main():
 
             # Build the MSI package with an optional output directory
             msi_file = build_msi(args.project_dir, args.wix_path, args.output)
-
+            
             if msi_file:
                 log(f"MSI package created successfully: {msi_file}")
                 
