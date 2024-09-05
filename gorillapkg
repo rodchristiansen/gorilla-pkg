@@ -465,23 +465,23 @@ def build_msi(project_dir, wix_path, output_dir=None):
     except Exception as e:
         log(f"An error occurred during MSI creation: {str(e)}", error=True)
         return
-    
-#     # Clean up the src directory and Package.wxs file after the build
-#     log(f"Cleaning up the src directory: {src_dir}")
-#     try:
-#         shutil.rmtree(src_dir)
-#         log("src directory and Package.wxs file have been removed.")
-#     except Exception as e:
-#         log(f"Failed to clean up src directory: {str(e)}", error=True)
-# 
-#     # Clean up the .wixpdb file
-#     wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
-#     if wixpdb_file exists():
-#         try:
-#             wixpdb_file.unlink()
-#             log(f"{wixpdb_file} file has been removed.")
-#         except Exception as e:
-#             log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
+
+    # Clean up the src directory and Package.wxs file after the build
+    log(f"Cleaning up the src directory: {src_dir}")
+    try:
+        shutil.rmtree(src_dir)
+        log("src directory and Package.wxs file have been removed.")
+    except Exception as e:
+        log(f"Failed to clean up src directory: {str(e)}", error=True)
+
+    # Clean up the .wixpdb file
+    wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
+    if wixpdb_file.exists():
+        try:
+            wixpdb_file.unlink()
+            log(f"{wixpdb_file} file has been removed.")
+        except Exception as e:
+            log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
 
 # Main function with enhanced command-line arguments
 def main():
