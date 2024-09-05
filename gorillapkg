@@ -292,6 +292,9 @@ def generate_wix_files(project_dir, config):
     standard_directories = get_standard_directories()
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
 
+    log(f"Install path: {install_path}")
+    log(f"Directory ID: {directory_id}, Remaining path: {remaining_path}")
+
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
     package = etree.SubElement(wix, "Package", 
                                Name=config['product']['name'], 
@@ -325,6 +328,7 @@ def generate_wix_files(project_dir, config):
     # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
     has_payload = payload_dir.exists() and any(payload_dir.rglob('*'))
+    log(f"Payload directory exists: {payload_dir.exists()}, Has files: {has_payload}")
     if has_payload:
         add_files_to_directory(current_dir, payload_dir, feature)
     else:
@@ -334,6 +338,7 @@ def generate_wix_files(project_dir, config):
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
     has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
+    log(f"Scripts directory exists: {scripts_dir.exists()}, Has scripts: {has_scripts}")
     
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
@@ -345,14 +350,18 @@ def generate_wix_files(project_dir, config):
         add_custom_actions(project_dir, fragment)
 
     # Finalize XML and save
-    xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
-    output_path = Path(project_dir) / "src" / "Package.wxs"
-    output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-    with open(output_path, 'wb') as file:
-        file.write(xml_str)
-    
-    log("Generated XML:")
-    log(xml_str.decode())
+    try:
+        xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+        output_path = Path(project_dir) / "src" / "Package.wxs"
+        output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        with open(output_path, 'wb') as file:
+            file.write(xml_str)
+        
+        log("Generated XML:")
+        log(xml_str.decode())
+    except Exception as e:
+        log(f"Error generating or saving XML: {str(e)}", error=True)
+        raise
     
     return output_path
 
@@ -585,7 +594,11 @@ def main():
             config = read_build_info(args.project_dir)
 
             # Generate WiX source files based on payload and scripts
-            output_path = generate_wix_files(args.project_dir, config)
+            try:
+                output_path = generate_wix_files(args.project_dir, config)
+            except Exception as e:
+                log(f"Error in generate_wix_files: {str(e)}", error=True)
+                raise
 
             # Check if scripts are present
             has_scripts = bool(get_scripts(args.project_dir))
@@ -615,6 +628,9 @@ def main():
 
         except Exception as e:
             log(f"An error occurred during the MSI creation process: {str(e)}", error=True)
+            if args.verbose:
+                import traceback
+                log(f"Traceback:\n{traceback.format_exc()}", error=True)
             sys.exit(1)
 
 if __name__ == '__main__':
