@@ -208,33 +208,6 @@ def find_standard_directory(install_path, standard_directories):
     # If no matches found, return the path as is
     return None, install_path
 
-def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None):
-    for file_path in source_dir.rglob('*'):
-        if file_path.is_file():
-            relative_path = file_path.relative_to(source_dir)
-            if is_script and fragment is not None:
-                # Add script as Binary
-                binary_id = f"Binary_{relative_path.stem}"
-                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
-            else:
-                dir_element = current_dir
-                for part in relative_path.parent.parts:
-                    dir_id, dir_name = generate_directory_id_name(part)
-                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                    if existing_dir is None:
-                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                    else:
-                        dir_element = existing_dir
-                
-                # Create a component for each file
-                component_id = f"Component_{uuid.uuid4().hex}"
-                component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-                file_id = f"File_{uuid.uuid4().hex}"
-                etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
-                
-                # Reference each component in the feature
-                etree.SubElement(feature, "ComponentRef", Id=component_id)
-
 def add_custom_actions(project_dir, fragment):
     scripts_dir = Path(project_dir) / "scripts"
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
@@ -270,18 +243,16 @@ def add_custom_actions(project_dir, fragment):
         
         custom_action = etree.SubElement(fragment, "CustomAction", 
                                          Id=action_id, 
-                                         BinaryKey=binary_id,
+                                         BinaryRef=binary_id,
                                          Execute="deferred", 
                                          Return="check", 
                                          Impersonate="no",
-                                         ExeCommand=run_command)
-
-        # Add a condition to ensure the custom action only runs during installation
-        condition = etree.SubElement(custom_action, "Condition")
-        condition.text = "NOT Installed"
+                                         Script="powershell")
+        
+        etree.SubElement(custom_action, "CDataString").text = etree.CDATA(run_command)
 
         # Add to InstallExecuteSequence
-        custom_element_attrs = {"Action": action_id}
+        custom_element_attrs = {"Action": action_id, "Condition": "NOT Installed"}
         if sequence == "Before":
             custom_element_attrs["Before"] = sequence_ref
         elif sequence == "After":
@@ -428,8 +399,7 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
             if is_script and fragment is not None:
                 # Add script as Binary
                 binary_id = f"Binary_{relative_path.stem}"
-                binary = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
-                add_script_custom_action(project_dir, fragment, relative_path.name)
+                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
             else:
                 dir_element = current_dir
                 for part in relative_path.parent.parts:
