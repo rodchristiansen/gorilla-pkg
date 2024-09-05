@@ -366,55 +366,7 @@ def add_script_to_binary(fragment, script_file):
     binary_id = f"Binary_{script_file.stem}"
     etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_file))
 
-def add_custom_actions(fragment, install_execute_sequence):
-    scripts_dir = Path(project_dir) / "scripts"
-    
-    for script_file in scripts_dir.glob('*.ps1'):
-        script_name = script_file.stem.lower()
-        if "preinstall" in script_name:
-            action_id = "RunPreinstall"
-            sequence = "Before"
-            sequence_ref = "InstallFiles"
-        elif "postinstall" in script_name:
-            action_id = "RunPostinstall"
-            sequence = "After"
-            sequence_ref = "InstallFiles"
-        else:
-            continue  # Skip if not pre or post install script
-
-        binary_id = f"Binary_{script_file.stem}"
-        
-        # Add custom action
-        run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
-            $ErrorActionPreference = 'Stop';
-            try {{
-                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
-                $scriptContent | Invoke-Expression;
-            }} catch {{
-                Write-Error $_.Exception.Message;
-                exit 1;
-            }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';
-        }}" """
-        
-        custom_action = etree.SubElement(fragment, "CustomAction", 
-                                         Id=action_id, 
-                                         BinaryKey=binary_id,
-                                         Execute="deferred", 
-                                         Return="check", 
-                                         Impersonate="no",
-                                         ExeCommand=run_command)
-
-        # Add a condition to ensure the custom action only runs during installation
-        condition = etree.SubElement(custom_action, "Condition")
-        condition.text = "NOT Installed"
-
-        # Add to InstallExecuteSequence
-        etree.SubElement(install_execute_sequence, "Custom", 
-                         Action=action_id, 
-                         Before=sequence_ref if sequence == "Before" else None,
-                         After=sequence_ref if sequence == "After" else None)
-
-def add_script_custom_action(fragment, script_name):
+def add_script_custom_action(project_dir, fragment, script_name):
     # Add custom action for running the script from Binary
     run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
     run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
@@ -451,7 +403,7 @@ def add_script_custom_action(fragment, script_name):
     elif "postinstall" in script_name.lower():
         etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
 
-def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None):
+def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None, project_dir=None):
     for file_path in source_dir.rglob('*'):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
@@ -459,7 +411,7 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 # Add script as Binary
                 binary_id = f"Binary_{relative_path.stem}"
                 binary = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
-                add_script_custom_action(fragment, relative_path.name)
+                add_script_custom_action(project_dir, fragment, relative_path.name)
             else:
                 dir_element = current_dir
                 for part in relative_path.parent.parts:
