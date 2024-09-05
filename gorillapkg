@@ -235,8 +235,11 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 # Reference each component in the feature
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
 
-def add_custom_actions(project_dir, fragment, install_execute_sequence):
+def add_custom_actions(project_dir, fragment):
     scripts_dir = Path(project_dir) / "scripts"
+    install_execute_sequence = fragment.find("./InstallExecuteSequence")
+    if install_execute_sequence is None:
+        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
     
     for script_file in scripts_dir.glob('*.ps1'):
         script_name = script_file.stem.lower()
@@ -337,14 +340,9 @@ def generate_wix_files(project_dir, config):
         for script_file in scripts_dir.glob('*.ps1'):
             add_script_to_binary(fragment, script_file)
 
-    # Ensure the InstallExecuteSequence exists in the fragment
-    install_execute_sequence = fragment.find("./InstallExecuteSequence")
-    if install_execute_sequence is None:
-        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
-
     # Add custom actions for scripts
     if has_scripts:
-        add_custom_actions(project_dir, fragment, install_execute_sequence)
+        add_custom_actions(project_dir, fragment)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
