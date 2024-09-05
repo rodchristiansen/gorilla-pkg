@@ -235,10 +235,8 @@ def generate_wix_files(project_dir, config):
                 dir_id, dir_name = generate_directory_id_name(part)
                 current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
         else:
-            # If no remaining path, ensure there's at least one directory element
             current_dir = etree.SubElement(install_folder, "Directory", Id="TempDir", Name="Temp")
     else:
-        # Default to ProgramFilesFolder and create full path
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
         current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
         for part in Path(install_path).parts:
@@ -265,6 +263,9 @@ def generate_wix_files(project_dir, config):
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
     if install_execute_sequence is None:
         install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
+
+    # Correcting the CustomAction paths and adding missing components
+    add_custom_actions(fragment, install_execute_sequence)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
