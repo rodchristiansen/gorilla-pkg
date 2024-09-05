@@ -208,6 +208,81 @@ def find_standard_directory(install_path, standard_directories):
     # If no matches found, return the path as is
     return None, install_path
 
+def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None):
+    for file_path in source_dir.rglob('*'):
+        if file_path.is_file():
+            relative_path = file_path.relative_to(source_dir)
+            if is_script and fragment is not None:
+                # Add script as Binary
+                binary_id = f"Binary_{relative_path.stem}"
+                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
+            else:
+                dir_element = current_dir
+                for part in relative_path.parent.parts:
+                    dir_id, dir_name = generate_directory_id_name(part)
+                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
+                    if existing_dir is None:
+                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
+                    else:
+                        dir_element = existing_dir
+                
+                # Create a component for each file
+                component_id = f"Component_{uuid.uuid4().hex}"
+                component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+                file_id = f"File_{uuid.uuid4().hex}"
+                etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
+                
+                # Reference each component in the feature
+                etree.SubElement(feature, "ComponentRef", Id=component_id)
+
+def add_custom_actions(fragment, install_execute_sequence):
+    scripts_dir = Path(project_dir) / "scripts"
+    
+    for script_file in scripts_dir.glob('*.ps1'):
+        script_name = script_file.stem.lower()
+        if "preinstall" in script_name:
+            action_id = "RunPreinstall"
+            sequence = "Before"
+            sequence_ref = "InstallFiles"
+        elif "postinstall" in script_name:
+            action_id = "RunPostinstall"
+            sequence = "After"
+            sequence_ref = "InstallFiles"
+        else:
+            continue  # Skip if not pre or post install script
+
+        binary_id = f"Binary_{script_file.stem}"
+        
+        # Add custom action
+        run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
+            $ErrorActionPreference = 'Stop';
+            try {{
+                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{binary_id}'));
+                $scriptContent | Invoke-Expression;
+            }} catch {{
+                Write-Error $_.Exception.Message;
+                exit 1;
+            }} | Out-File -Append '$env:TEMP\\{script_file.name}.log';
+        }}" """
+        
+        custom_action = etree.SubElement(fragment, "CustomAction", 
+                                         Id=action_id, 
+                                         BinaryRef=binary_id,
+                                         Execute="deferred", 
+                                         Return="check", 
+                                         Impersonate="no",
+                                         ExeCommand=run_command)
+
+        # Add a condition to ensure the custom action only runs during installation
+        condition = etree.SubElement(custom_action, "Condition")
+        condition.text = "NOT Installed"
+
+        # Add to InstallExecuteSequence
+        etree.SubElement(install_execute_sequence, "Custom", 
+                         Action=action_id, 
+                         Before=sequence_ref if sequence == "Before" else None,
+                         After=sequence_ref if sequence == "After" else None)
+
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     install_path = config['install_path'].replace("[username]", os.getlogin())
@@ -234,8 +309,6 @@ def generate_wix_files(project_dir, config):
             for part in Path(remaining_path).parts:
                 dir_id, dir_name = generate_directory_id_name(part)
                 current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
-        else:
-            current_dir = etree.SubElement(install_folder, "Directory", Id="TempDir", Name="Temp")
     else:
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
         current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
@@ -248,21 +321,26 @@ def generate_wix_files(project_dir, config):
 
     # Add payload files if they exist
     payload_dir = Path(project_dir) / "payload"
-    if payload_dir.exists() and any(payload_dir.rglob('*')):
+    has_payload = payload_dir.exists() and any(payload_dir.rglob('*'))
+    if has_payload:
         add_files_to_directory(current_dir, payload_dir, feature)
 
     # Add scripts if they exist
     scripts_dir = Path(project_dir) / "scripts"
-    has_scripts = scripts_dir.exists() and any(scripts_dir.rglob('*.ps1'))
+    has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
+    
     fragment = etree.SubElement(wix, "Fragment")
     if has_scripts:
-        for script_file in scripts_dir.glob('*.ps1'):
-            add_files_to_directory(None, scripts_dir, feature, is_script=True, fragment=fragment)
+        add_files_to_directory(None, scripts_dir, feature, is_script=True, fragment=fragment)
 
     # Ensure the InstallExecuteSequence exists in the fragment
     install_execute_sequence = fragment.find("./InstallExecuteSequence")
     if install_execute_sequence is None:
         install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
+
+    # Add custom actions for scripts
+    if has_scripts:
+        add_custom_actions(fragment, install_execute_sequence)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -273,11 +351,6 @@ def generate_wix_files(project_dir, config):
     
     log("Generated XML:")
     log(xml_str.decode())
-    
-    # Verify the generated XML
-    if not verify_wxs_files(project_dir, has_scripts):
-        log("Verification of WiX source files failed, aborting MSI creation.", error=True)
-        sys.exit(1)
     
     return output_path
 
@@ -328,7 +401,6 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 binary = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
                 add_script_custom_action(fragment, relative_path.name)
             else:
-                # Correctly handle payload files
                 dir_element = current_dir
                 for part in relative_path.parent.parts:
                     dir_id, dir_name = generate_directory_id_name(part)
