@@ -264,9 +264,6 @@ def generate_wix_files(project_dir, config):
     if install_execute_sequence is None:
         install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
 
-    # Correcting the CustomAction paths and adding missing components
-    add_custom_actions(fragment, install_execute_sequence)
-
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
     output_path = Path(project_dir) / "src" / "Package.wxs"
@@ -328,9 +325,10 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
             if is_script and fragment is not None:
                 # Add script as Binary
                 binary_id = f"Binary_{relative_path.stem}"
-                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
+                binary = etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
                 add_script_custom_action(fragment, relative_path.name)
             else:
+                # Correctly handle payload files
                 dir_element = current_dir
                 for part in relative_path.parent.parts:
                     dir_id, dir_name = generate_directory_id_name(part)
@@ -339,10 +337,14 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                         dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
                     else:
                         dir_element = existing_dir
+                
+                # Create a component for each file
                 component_id = f"Component_{uuid.uuid4().hex}"
                 component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
                 file_id = f"File_{uuid.uuid4().hex}"
                 etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
+                
+                # Reference each component in the feature
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
 
 def add_custom_actions(fragment, install_execute_sequence):
