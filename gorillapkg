@@ -235,7 +235,7 @@ def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fr
                 # Reference each component in the feature
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
 
-def add_custom_actions(fragment, install_execute_sequence):
+def add_custom_actions(project_dir, fragment, install_execute_sequence):
     scripts_dir = Path(project_dir) / "scripts"
     
     for script_file in scripts_dir.glob('*.ps1'):
@@ -257,7 +257,7 @@ def add_custom_actions(fragment, install_execute_sequence):
         run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
             $ErrorActionPreference = 'Stop';
             try {{
-                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{binary_id}'));
+                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
                 $scriptContent | Invoke-Expression;
             }} catch {{
                 Write-Error $_.Exception.Message;
@@ -267,7 +267,7 @@ def add_custom_actions(fragment, install_execute_sequence):
         
         custom_action = etree.SubElement(fragment, "CustomAction", 
                                          Id=action_id, 
-                                         BinaryRef=binary_id,
+                                         BinaryKey=binary_id,
                                          Execute="deferred", 
                                          Return="check", 
                                          Impersonate="no",
@@ -344,7 +344,7 @@ def generate_wix_files(project_dir, config):
 
     # Add custom actions for scripts
     if has_scripts:
-        add_custom_actions(fragment, install_execute_sequence)
+        add_custom_actions(project_dir, fragment, install_execute_sequence)
 
     # Finalize XML and save
     xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
@@ -622,7 +622,7 @@ def main():
     setup_logging(args.verbose)
 
     if args.create:
-        if not create_project_directory(args.project_dir, args.force):
+        if not create_project_directory(args.project_dir):
             log("Failed to create a new project directory.", error=True)
             sys.exit(1)
         log(f"Project directory created at {args.project_dir}")
@@ -648,11 +648,21 @@ def main():
             # Build the MSI package with an optional output directory
             msi_file = build_msi(args.project_dir, args.wix_path, args.output)
 
-            # Sign the MSI if identity is provided and --no-sign is not used
-            if 'identity' in config and not args.no_sign:
-                sign_msi(msi_file, config['identity'])
+            if msi_file:
+                log(f"MSI package created successfully: {msi_file}")
+                
+                # Sign the MSI if identity is provided and --no-sign is not used
+                if 'identity' in config and not args.no_sign:
+                    if sign_msi(msi_file, config['identity']):
+                        log("MSI package signed successfully.")
+                    else:
+                        log("Failed to sign MSI package.", error=True)
+                
+                log("MSI package creation process completed successfully.")
+            else:
+                log("Failed to create MSI package.", error=True)
+                sys.exit(1)
 
-            log("MSI package creation process completed successfully.")
         except Exception as e:
             log(f"An error occurred during the MSI creation process: {str(e)}", error=True)
             sys.exit(1)
