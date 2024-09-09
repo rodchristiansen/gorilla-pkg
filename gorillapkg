@@ -158,11 +158,18 @@ def add_script_binaries(package, project_dir):
     if scripts_dir.exists():
         for script_file in scripts_dir.glob('*.ps1'):
             binary_id = f"Binary_{script_file.stem}"
+            
+            # Read and encode the script content in base64
             with open(script_file, 'rb') as f:
-                script_content = base64.b64encode(f.read()).decode('utf-8')
+                script_content = f.read()
+                encoded_script = base64.b64encode(script_content).decode('utf-8')
+            
+            # Add Binary element to the package
             etree.SubElement(package, "Binary", Id=binary_id, SourceFile=str(script_file))
-            etree.SubElement(package, "Property", Id=f"SCRIPTCONTENT_{script_file.stem.upper()}", Value=script_content)
-            binary_info[script_file.stem] = (binary_id, str(script_file))
+            
+            # Store the encoded content in the Property for later use in PowerShell command
+            etree.SubElement(package, "Property", Id=f"SCRIPTCONTENT_{script_file.stem.upper()}", Value=encoded_script)
+            binary_info[script_file.stem] = (binary_id, encoded_script)
     return binary_info
 
 def add_custom_actions(package, project_dir, binary_info):
@@ -171,6 +178,7 @@ def add_custom_actions(package, project_dir, binary_info):
         powershell_exe_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
         etree.SubElement(package, "Property", Id="POWERSHELLEXE", Value=powershell_exe_path)
 
+        # Ensure the InstallExecuteSequence element is present
         install_execute_sequence = package.find("./InstallExecuteSequence")
         if install_execute_sequence is None:
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
@@ -188,7 +196,7 @@ def add_custom_actions(package, project_dir, binary_info):
             else:
                 continue
 
-            binary_id, script_path = binary_info.get(script_file.stem, (None, None))
+            binary_id, encoded_script = binary_info.get(script_file.stem, (None, None))
             if not binary_id:
                 log(f"Warning: Binary ID not found for script {script_file.stem}", error=True)
                 continue
@@ -196,30 +204,31 @@ def add_custom_actions(package, project_dir, binary_info):
             command_property_id = f"{action_id}Command"
             set_property_id = f"Set{action_id}Command"
 
-            # Use the actual command rather than relying on placeholders
+            # Correctly formatted PowerShell command using the base64 encoded script
             command_value = (
                 f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden "
-                f"-ExecutionPolicy Bypass -Command \"& {{ $script = [System.Text.Encoding]::UTF8.GetString("
-                f"[System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); "
+                f"-ExecutionPolicy Bypass -Command \"& {{ "
+                f"$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); "
                 f"Invoke-Expression $script }}\""
             )
 
-            # Set the Property value directly to the command
+            # Setting the Property value directly with the PowerShell command
             etree.SubElement(package, "Property", Id=command_property_id, Value=command_value)
 
-            # Define CustomAction that uses the property directly
-            etree.SubElement(package, "CustomAction", Id=action_id, ExeCommand=command_value, Execute="deferred", Return="check", Impersonate="no")
+            # Creating CustomAction in WiX 5 compatible format
+            etree.SubElement(package, "CustomAction", Id=set_property_id, Property=command_property_id, Value=command_value, Execute="immediate", Return="check")
+            etree.SubElement(package, "CustomAction", Id=action_id, Property=command_property_id, ExeCommand=f"[{command_property_id}]", Execute="deferred", Return="check", Impersonate="no")
 
-            # Insert the custom action into the sequence
+            # Placing CustomAction into the InstallExecuteSequence
+            etree.SubElement(install_execute_sequence, "Custom", Action=set_property_id, Before=action_id)
             etree.SubElement(install_execute_sequence, "Custom", Action=action_id, **{sequence_position: sequence_ref}, Condition="NOT Installed")
 
         log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
     else:
         log("No scripts directory found. Skipping custom actions.")
 
-
 def generate_wix_files(project_dir, config):
-    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
+    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"  # WiX 5 continues to use v4 namespace
     install_path = config['install_path'].replace("[username]", os.getlogin())
     standard_directories = get_standard_directories()
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
@@ -236,19 +245,19 @@ def generate_wix_files(project_dir, config):
     etree.SubElement(package, "MajorUpgrade", DowngradeErrorMessage="A newer version of [ProductName] is already installed.")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
+    # Use INSTALLFOLDER in WiX 5 as the main installation directory
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = create_directory_structure(install_folder, remaining_path)
     else:
-        install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
+        install_folder = etree.SubElement(package, "StandardDirectory", Id="INSTALLFOLDER")
         current_dir = create_directory_structure(install_folder, install_path)
 
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
+    # Adding payload and scripts handling
     add_payload_files(current_dir, project_dir, feature)
-
     binary_info = add_script_binaries(package, project_dir)
-
     add_custom_actions(package, project_dir, binary_info)
 
     return wix
