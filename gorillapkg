@@ -196,7 +196,7 @@ def add_custom_actions(package, project_dir, binary_info):
             command_property_id = f"{action_id}Command"
             set_property_id = f"Set{action_id}Command"
 
-            # Correct command formatting for PowerShell execution
+            # Use the actual command rather than relying on placeholders
             command_value = (
                 f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden "
                 f"-ExecutionPolicy Bypass -Command \"& {{ $script = [System.Text.Encoding]::UTF8.GetString("
@@ -204,16 +204,19 @@ def add_custom_actions(package, project_dir, binary_info):
                 f"Invoke-Expression $script }}\""
             )
 
-            # Add properties and custom actions to the package
+            # Set the Property value directly to the command
             etree.SubElement(package, "Property", Id=command_property_id, Value=command_value)
-            etree.SubElement(package, "CustomAction", Id=set_property_id, Property=command_property_id, Value=command_value, Execute="immediate", Return="check")
-            etree.SubElement(package, "CustomAction", Id=action_id, Property=command_property_id, ExeCommand=f"[{command_property_id}]", Execute="deferred", Return="check", Impersonate="no")
-            etree.SubElement(install_execute_sequence, "Custom", Action=set_property_id, Before=action_id)
+
+            # Define CustomAction that uses the property directly
+            etree.SubElement(package, "CustomAction", Id=action_id, ExeCommand=command_value, Execute="deferred", Return="check", Impersonate="no")
+
+            # Insert the custom action into the sequence
             etree.SubElement(install_execute_sequence, "Custom", Action=action_id, **{sequence_position: sequence_ref}, Condition="NOT Installed")
 
         log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
     else:
         log("No scripts directory found. Skipping custom actions.")
+
 
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
