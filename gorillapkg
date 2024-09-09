@@ -7,7 +7,6 @@ import base64
 import argparse
 import uuid
 import shutil
-import tempfile
 from lxml import etree
 from pathlib import Path
 
@@ -17,7 +16,6 @@ DEFAULT_WIX_BIN_PATH = r"C:\Program Files\WiX Toolset v5.0\bin"
 
 import logging
 
-# Enhanced logging function
 def setup_logging(verbose=False):
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,7 +26,6 @@ def log(message, level=logging.INFO, error=False):
     else:
         logging.log(level, message)
 
-# Function to check if WiX Toolset is installed
 def check_wix_toolset(wix_path):
     wix_exe_path = Path(wix_path) / "wix.exe"
     log(f"Checking for WiX Toolset at {wix_exe_path}")
@@ -37,68 +34,23 @@ def check_wix_toolset(wix_path):
         log("WiX Toolset is not installed or not found in the expected location.", error=True)
         sys.exit(1)
 
-# Function to read YAML configuration
 def read_build_info(project_dir):
     build_info_path = Path(project_dir) / BUILD_INFO_FILE
     log(f"Reading build info from {build_info_path}")
     with open(build_info_path, 'r') as file:
         return yaml.safe_load(file)
 
-# Function to dynamically populate files section based on payload directory contents
-def get_files_from_payload(project_dir):
-    payload_dir = Path(project_dir) / "payload"
-    log(f"Getting files from payload directory {payload_dir}")
-    files_list = []
-    
-    if not payload_dir.exists():
-        log(f"Warning: Payload directory {payload_dir} does not exist. Building a payload-free package.", error=False)
-
-    for file_path in payload_dir.rglob('*'):
-        if file_path.is_file():
-            file_entry = {
-                "source": str(file_path).replace("\\", "/"),
-                "destination": f"[INSTALLFOLDER]{file_path.relative_to(payload_dir)}",
-                "component_id": f"Component_{file_path.stem}"
-            }
-            files_list.append(file_entry)
-            log(f"Added file: {file_entry['source']} to installation package")
-    
-    return files_list
-
-# Function to dynamically detect and include preinstall and postinstall scripts
-def get_scripts(project_dir):
-    scripts_dir = Path(project_dir) / "scripts"
-    actions = {}
-    log(f"Checking for scripts in {scripts_dir}")
-
-    for script_type in ['preinstall', 'postinstall']:
-        script_path = scripts_dir / f"{script_type}.ps1"
-        if script_path.exists():
-            actions[script_type] = str(script_path)
-            log(f"Found {script_type} script: {script_path}")
-        else:
-            log(f"No {script_type} script found.", error=False)
-
-    return actions
-
-# Function to generate UpgradeCodes
 def generate_guids(identifier):
-    # Generate a consistent UpgradeCode using the identifier
     upgrade_code = uuid.uuid5(uuid.NAMESPACE_DNS, identifier)
-    
-    # Generate a new ProductCode for each version (can be changed per run)
     product_code = uuid.uuid4()
-    
     return str(product_code), str(upgrade_code)
-    
-# Function to create a new project directory
+
 def create_project_directory(project_dir):
     project_path = Path(project_dir)
     if project_path.exists():
         print(f"Error: Directory {project_dir} already exists.")
         return False
 
-    # Create project directories with exist_ok=True for robustness
     os.makedirs(project_path / "payload", exist_ok=True)
     os.makedirs(project_path / "scripts", exist_ok=True)
     
@@ -117,12 +69,7 @@ def create_project_directory(project_dir):
     print(f"Created new project directory at {project_dir}")
     return True
 
-# Function to parse version number in build-info.yaml
 def parse_version(version_str):
-    """
-    Parses a version string and converts it to a Windows Installer compatible version.
-    Supports date-based versions (YYYY.MM.DD), semantic versions (X.Y.Z), and versions with build numbers (X.Y.Z.B).
-    """
     try:
         parts = version_str.split('.')
         if len(parts) == 3 and len(parts[0]) == 4:  # Date-based version
@@ -144,7 +91,6 @@ def parse_version(version_str):
         log(f"Expected format: 'YYYY.MM.DD', 'X.Y.Z', or 'X.Y.Z.B'", error=True)
         sys.exit(1)
 
-# Define directories for xml to map from yaml
 def get_standard_directories():
     username = os.getlogin()
     return {
@@ -174,123 +120,125 @@ def get_standard_directories():
         "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local": "LocalAppDataFolder",
     }
 
-# Function to generate a valid directory ID and Name
+def create_directory_structure(parent, path):
+    current_dir = parent
+    for part in Path(path).parts:
+        dir_id, dir_name = generate_directory_id_name(part)
+        current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+    return current_dir
+
 def generate_directory_id_name(part):
-    # Replace invalid characters with underscores for IDs
     sanitized_part = part.replace(' ', '_').replace(':', '').replace('\\', '').replace('/', '')
     dir_id = f"dir_{sanitized_part}"
-    # Remove invalid characters for Names
     dir_name = part.replace(":", "").replace("\\", "").replace("/", "")
     
-    # If the name is empty (like for 'C:'), use a placeholder
     if not dir_name:
         dir_name = "ROOT"
         
     return dir_id, dir_name
 
-# Function to find the matching standard directory
 def find_standard_directory(install_path, standard_directories):
     normalized_install_path = os.path.normpath(install_path).lower()
     
-    # Sort directories by path length to prioritize specific matches
     sorted_directories = sorted(standard_directories.items(), key=lambda x: -len(x[0]))
     
     for standard_path, directory_id in sorted_directories:
         normalized_standard_path = os.path.normpath(standard_path).lower()
         if normalized_install_path == normalized_standard_path:
-            # Exact match
             return directory_id, ""
         elif normalized_install_path.startswith(normalized_standard_path):
-            # Partial match, returning the remaining path after the standard path
             remaining_path = normalized_install_path[len(normalized_standard_path):].lstrip(os.sep)
             return directory_id, remaining_path
 
-    # If no matches found, return the path as is
     return None, install_path
 
-def add_custom_actions(project_dir, fragment):
+def add_script_binaries(package, project_dir):
     scripts_dir = Path(project_dir) / "scripts"
-    install_execute_sequence = fragment.find("./InstallExecuteSequence")
-    if install_execute_sequence is None:
-        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
-    
-    for script_file in scripts_dir.glob('*.ps1'):
-        script_name = script_file.stem.lower()
-        if "preinstall" in script_name:
-            action_id = "RunPreinstall"
-            sequence = "Before"
-            sequence_ref = "InstallFiles"
-        elif "postinstall" in script_name:
-            action_id = "RunPostinstall"
-            sequence = "After"
-            sequence_ref = "InstallFiles"
-        else:
-            continue  # Skip if not pre or post install script
+    binary_info = {}
+    if scripts_dir.exists():
+        for script_file in scripts_dir.glob('*.ps1'):
+            binary_id = f"Binary_{script_file.stem}"
+            with open(script_file, 'rb') as f:
+                script_content = base64.b64encode(f.read()).decode('utf-8')
+            etree.SubElement(package, "Binary", Id=binary_id, SourceFile=str(script_file))
+            etree.SubElement(package, "Property", Id=f"SCRIPTCONTENT_{script_file.stem.upper()}", Value=script_content)
+            binary_info[script_file.stem] = (binary_id, str(script_file))
+    return binary_info
 
-        binary_id = f"Binary_{script_file.stem}"
+def add_custom_actions(package, project_dir, binary_info):
+    scripts_dir = Path(project_dir) / "scripts"
+    if scripts_dir.exists():
+        powershell_property = etree.SubElement(package, "Property", Id="POWERSHELLEXE")
+        etree.SubElement(powershell_property, "RegistrySearch", 
+                         Id="POWERSHELLEXE",
+                         Root="HKLM",
+                         Key="SOFTWARE\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell",
+                         Name="Path",
+                         Type="file")
         
-        # Add the script as a Binary element
-        etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_file))
-        
-        # Create a property to hold the command
-        property_id = f"{action_id}Cmd"
-        command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
-            $ErrorActionPreference = 'Stop';
-            $VerbosePreference = 'Continue';
-            $DebugPreference = 'Continue';
-            $logFile = 'C:\\ProgramData\\Startset\\{script_file.name}_execution.log';
-            Start-Transcript -Path $logFile -Append;
-            Write-Verbose 'Starting script execution';
-            try {{
-                Write-Verbose 'Executing script';
-                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[#${binary_id}]'));
-                Invoke-Expression $scriptContent;
-                Write-Verbose 'Script execution completed';
-            }} catch {{
-                Write-Error "An error occurred: $($_.Exception.Message)";
-                Write-Error "Stack Trace: $($_.ScriptStackTrace)";
-                exit 1;
-            }} finally {{
-                Write-Verbose 'Ending script execution';
-                Stop-Transcript;
-            }}
-        }}" """
-        etree.SubElement(fragment, "Property", Id=property_id, Value=command)
-        
-        # Add custom action to set the property
-        etree.SubElement(fragment, "CustomAction",
-                         Id=f"Set_{action_id}",
-                         Property=property_id,
-                         Value=f"[{property_id}]",
-                         Execute="immediate")
-        
-        # Add the main custom action
-        etree.SubElement(fragment, "CustomAction", 
-                         Id=action_id, 
-                         BinaryKey="WixCA",
-                         DllEntry="WixQuietExec",
-                         Execute="deferred", 
-                         Return="check", 
-                         Impersonate="no")
-        
-        # Add to InstallExecuteSequence
-        etree.SubElement(install_execute_sequence, "Custom", 
-                         Action=f"Set_{action_id}",
-                         Before=action_id)
-        
-        custom_element_attrs = {"Action": action_id, "After": sequence_ref if sequence == "After" else None, "Before": sequence_ref if sequence == "Before" else None}
-        etree.SubElement(install_execute_sequence, "Custom", **custom_element_attrs)
+        etree.SubElement(package, "Launch", 
+                         Condition="POWERSHELLEXE",
+                         Message="This application requires Windows PowerShell.")
 
-    log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
+        install_execute_sequence = package.find("./InstallExecuteSequence")
+        if install_execute_sequence is None:
+            install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
+        
+        for script_file in scripts_dir.glob('*.ps1'):
+            script_name = script_file.stem.lower()
+            if "preinstall" in script_name:
+                action_id = "RunPreinstall"
+                sequence_ref = "InstallFiles"
+                sequence_position = "Before"
+            elif "postinstall" in script_name:
+                action_id = "RunPostinstall"
+                sequence_ref = "InstallFinalize"
+                sequence_position = "After"
+            else:
+                continue
+
+            binary_id, script_path = binary_info.get(script_file.stem, (None, None))
+            if not binary_id:
+                log(f"Warning: Binary ID not found for script {script_file.stem}", error=True)
+                continue
+            
+            command_property_id = f"{action_id}Command"
+            etree.SubElement(package, "Property", Id=command_property_id, Value="PLACEHOLDER")
+
+            set_property_id = f"Set{action_id}Command"
+            etree.SubElement(package, "CustomAction",
+                             Id=set_property_id,
+                             Property=command_property_id,
+                             Value="[POWERSHELLEXE] -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{0}]'));Invoke-Expression $script\"".format(script_file.stem.upper()),
+                             Execute="immediate",
+                             Return="check")
+
+            etree.SubElement(package, "CustomAction",
+                             Id=action_id,
+                             Property=command_property_id,
+                             ExeCommand="[{0}]".format(command_property_id),
+                             Execute="deferred",
+                             Return="check",
+                             Impersonate="no")
+
+            etree.SubElement(install_execute_sequence, "Custom", 
+                             Action=set_property_id,
+                             Before=action_id)
+
+            etree.SubElement(install_execute_sequence, "Custom", 
+                             Action=action_id,
+                             **{sequence_position: sequence_ref},
+                             Condition="NOT Installed")
+
+        log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
+    else:
+        log("No scripts directory found. Skipping custom actions.")
 
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     install_path = config['install_path'].replace("[username]", os.getlogin())
     standard_directories = get_standard_directories()
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
-
-    log(f"Install path: {install_path}")
-    log(f"Directory ID: {directory_id}, Remaining path: {remaining_path}")
 
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
     package = etree.SubElement(wix, "Package", 
@@ -300,154 +248,65 @@ def generate_wix_files(project_dir, config):
                                UpgradeCode=generate_guids(config['product']['identifier'])[1],
                                InstallerVersion="500", 
                                Compressed="yes")
+    
+    etree.SubElement(package, "MajorUpgrade", DowngradeErrorMessage="A newer version of [ProductName] is already installed.")
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Create the initial directory structure
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
-        current_dir = install_folder
-
-        # Add a directory element for each part of the remaining path, if any
-        if remaining_path:
-            for part in Path(remaining_path).parts:
-                dir_id, dir_name = generate_directory_id_name(part)
-                current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+        current_dir = create_directory_structure(install_folder, remaining_path)
     else:
         install_folder = etree.SubElement(package, "StandardDirectory", Id="ProgramFilesFolder")
-        current_dir = etree.SubElement(install_folder, "Directory", Id="INSTALLFOLDER", Name=config['product']['manufacturer'] + " " + config['product']['name'])
-        for part in Path(install_path).parts:
-            dir_id, dir_name = generate_directory_id_name(part)
-            current_dir = etree.SubElement(current_dir, "Directory", Id=dir_id, Name=dir_name)
+        current_dir = create_directory_structure(install_folder, install_path)
 
-    # Define the main feature
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Add payload files if they exist
+    add_payload_files(current_dir, project_dir, feature)
+
+    binary_info = add_script_binaries(package, project_dir)
+
+    add_custom_actions(package, project_dir, binary_info)
+
+    return wix
+
+def add_payload_files(current_dir, project_dir, feature):
     payload_dir = Path(project_dir) / "payload"
-    has_payload = payload_dir.exists() and any(payload_dir.rglob('*'))
-    log(f"Payload directory exists: {payload_dir.exists()}, Has files: {has_payload}")
-    if has_payload:
-        add_files_to_directory(current_dir, payload_dir, feature)
-    else:
-        # Add a component to create the directory even if there's no payload
-        add_empty_directory_component(current_dir, feature)
-
-    # Add scripts if they exist
-    scripts_dir = Path(project_dir) / "scripts"
-    has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
-    log(f"Scripts directory exists: {scripts_dir.exists()}, Has scripts: {has_scripts}")
-    if has_scripts:
-        script_files = list(scripts_dir.glob('*.ps1'))
-        log(f"Found {len(script_files)} script(s): {', '.join(str(f) for f in script_files)}")
-    
-    fragment = etree.SubElement(wix, "Fragment")
-    if has_scripts:
-        for script_file in scripts_dir.glob('*.ps1'):
-            add_script_to_binary(fragment, script_file)
-            log(f"Added script to binary: {script_file}")
-
-    # Add custom actions for scripts
-    if has_scripts:
-        add_custom_actions(project_dir, fragment)
-
-    # Finalize XML and save
-    try:
-        xml_str = etree.tostring(wix, pretty_print=True, xml_declaration=True, encoding='UTF-8')
-        output_path = Path(project_dir) / "src" / "Package.wxs"
-        output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        with open(output_path, 'wb') as file:
-            file.write(xml_str)
-        
-        log("Generated XML:")
-        log(xml_str.decode())
-    except Exception as e:
-        log(f"Error generating or saving XML: {str(e)}", error=True)
-        raise
-    
-    return output_path
-
-def add_empty_directory_component(current_dir, feature):
-    component_id = "EmptyDirectoryComponent"
-    component = etree.SubElement(current_dir, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-    etree.SubElement(component, "CreateFolder")
-    etree.SubElement(feature, "ComponentRef", Id=component_id)
-
-def add_script_to_binary(fragment, script_file):
-    binary_id = f"Binary_{script_file.stem}"
-    etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(script_file))
-
-def add_script_custom_action(project_dir, fragment, script_name):
-    # Add custom action for running the script from Binary
-    run_action_id = f"Run{script_name.capitalize().replace('.ps1', '')}"
-    run_command = f"""powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -Command "& {{
-        $ErrorActionPreference = 'Stop';
-        try {{
-            $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[Binary]{script_name}'));
-            $scriptContent | Invoke-Expression;
-        }} catch {{
-            Write-Error $_.Exception.Message;
-            exit 1;
-        }} | Out-File -Append '$env:TEMP\\{script_name}.log';
-    }}" """
-    
-    custom_action = etree.SubElement(fragment, "CustomAction", 
-                                     Id=run_action_id, 
-                                     BinaryRef=script_name,
-                                     Execute="deferred", 
-                                     Return="check", 
-                                     Impersonate="no", 
-                                     ExeCommand=run_command)
-    
-    # Add a condition to ensure the custom action only runs during installation
-    condition = etree.SubElement(custom_action, "Condition")
-    condition.text = "NOT Installed"
-
-    # Ensure the InstallExecuteSequence exists
-    install_execute_sequence = fragment.find("./InstallExecuteSequence")
-    if install_execute_sequence is None:
-        install_execute_sequence = etree.SubElement(fragment, "InstallExecuteSequence")
-    
-    # Add the custom action to the correct position
-    if "preinstall" in script_name.lower():
-        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, Before="InstallFiles")
-    elif "postinstall" in script_name.lower():
-        etree.SubElement(install_execute_sequence, "Custom", Action=run_action_id, After="InstallFiles")
-
-def add_files_to_directory(current_dir, source_dir, feature, is_script=False, fragment=None, project_dir=None):
-    for file_path in source_dir.rglob('*'):
-        if file_path.is_file():
-            relative_path = file_path.relative_to(source_dir)
-            if is_script and fragment is not None:
-                # Add script as Binary
-                binary_id = f"Binary_{relative_path.stem}"
-                etree.SubElement(fragment, "Binary", Id=binary_id, SourceFile=str(file_path))
-            else:
-                dir_element = current_dir
-                for part in relative_path.parent.parts:
-                    dir_id, dir_name = generate_directory_id_name(part)
-                    existing_dir = dir_element.find(f"./Directory[@Id='{dir_id}']")
-                    if existing_dir is None:
-                        dir_element = etree.SubElement(dir_element, "Directory", Id=dir_id, Name=dir_name)
-                    else:
-                        dir_element = existing_dir
+    if payload_dir.exists():
+        for file_path in payload_dir.rglob('*'):
+            if file_path.is_file():
+                relative_path = file_path.relative_to(payload_dir)
+                dir_element = get_or_create_directory(current_dir, relative_path.parent)
                 
-                # Create a component for each file
                 component_id = f"Component_{uuid.uuid4().hex}"
                 component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
                 file_id = f"File_{uuid.uuid4().hex}"
                 etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
                 
-                # Reference each component in the feature
                 etree.SubElement(feature, "ComponentRef", Id=component_id)
 
-# Function to run a subprocess and check for errors
+def get_or_create_directory(parent, path):
+    current = parent
+    for part in path.parts:
+        dir_id, dir_name = generate_directory_id_name(part)
+        existing = current.find(f"./Directory[@Id='{dir_id}']")
+        if existing is None:
+            current = etree.SubElement(current, "Directory", Id=dir_id, Name=dir_name)
+        else:
+            current = existing
+    return current
+
+def print_wxs_content(package_wxs_path):
+    log("Contents of the generated WXS file:")
+    with open(package_wxs_path, 'r') as file:
+        log(file.read())
+
 def run_command(command, quiet=False, verbose=False):
     try:
         if verbose:
             command += " -v"
         log(f"Executing command: {command}")
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        result.check_returncode()  # Will raise CalledProcessError if return code is not 0
+        result.check_returncode()
         if not quiet:
             log(result.stdout)
         return True, result.stdout
@@ -468,11 +327,9 @@ def verify_wxs_files(project_dir, has_scripts):
         with open(package_wxs_path, 'rb') as file:
             content = file.read()
 
-        # Use lxml to parse the XML and verify the structure
         tree = etree.fromstring(content)
         NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
         
-        # Verify essential elements exist
         required_tags = [
             f"{{{NS_WIX}}}Package",
             f"{{{NS_WIX}}}Directory",
@@ -501,8 +358,7 @@ def verify_wxs_files(project_dir, has_scripts):
 
     log("WXS files verification passed.")
     return True
-    
-# Function to run SignTool if 'identity' key is present
+
 def sign_msi(msi_file, identity):
     log(f"Signing MSI package {msi_file} with identity {identity}")
     sign_command = f'signtool sign /n "{identity}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "{msi_file}"'
@@ -513,44 +369,9 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
-# Function to validate the generated WiX XML
-def validate_wix_xml(xml_string, config, has_payload, has_preinstall, has_postinstall):
-    root = etree.fromstring(xml_string)
-    ns = {"wix": "http://wixtoolset.org/schemas/v4/wxs"}
-
-    # Check basic structure
-    assert root.find(".//wix:Package", ns) is not None, "Missing Package element"
-    assert root.find(".//wix:Feature", ns) is not None, "Missing Feature element"
-
-    # Check payload
-    if has_payload:
-        assert root.find(".//wix:Component", ns) is not None, "Missing Component element for payload"
-    else:
-        assert root.find(".//wix:CreateFolder", ns) is not None, "Missing CreateFolder element for no-payload package"
-
-    # Check scripts
-    if has_preinstall:
-        assert root.find(".//wix:CustomAction[@Id='RunPreinstall']", ns) is not None, "Missing preinstall CustomAction"
-    if has_postinstall:
-        assert root.find(".//wix:CustomAction[@Id='RunPostinstall']", ns) is not None, "Missing postinstall CustomAction"
-
-    # Check build info
-    package = root.find(".//wix:Package", ns)
-    assert package.get("Name") == config['product']['name'], "Incorrect product name"
-    assert package.get("Manufacturer") == config['product']['manufacturer'], "Incorrect manufacturer"
-    assert package.get("Version") is not None, "Missing version"
-
-    log("WiX XML validation passed")
-
-# Usage in main function:
-xml_string = generate_wix_files(project_dir, config)
-validate_wix_xml(xml_string, config, has_payload, has_preinstall, has_postinstall)
-
-# Build MSI function to include verbose logging and correct embedding
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
     
-    # Use 'build' folder as default output directory unless specified
     if output_dir is None:
         output_dir = Path(project_dir) / "build"
     else:
@@ -563,7 +384,6 @@ def build_msi(project_dir, wix_path, output_dir=None):
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
     
-    # Verbose command to use Package.wxs for building MSI
     command = f'"{wix_exe}" build -v -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
@@ -572,7 +392,6 @@ def build_msi(project_dir, wix_path, output_dir=None):
     
     log(f"MSI package created successfully at {msi_file}.")
     
-    # Check if 'identity' key is present in build-info.yaml for signing
     config = read_build_info(project_dir)
     if 'identity' in config:
         if not sign_msi(msi_file, config['identity']):
@@ -580,14 +399,12 @@ def build_msi(project_dir, wix_path, output_dir=None):
             return None
 
     try:
-        # Clean up the src directory and Package.wxs file after the build
         log(f"Cleaning up the src directory: {src_dir}")
         shutil.rmtree(src_dir)
         log("src directory and Package.wxs file have been removed.")
     except Exception as e:
         log(f"Failed to clean up src directory: {str(e)}", error=True)
 
-    # Clean up the .wixpdb file
     wixpdb_file = output_dir / f"{msi_file_name.replace('.msi', '')}.wixpdb"
     if wixpdb_file.exists():
         try:
@@ -596,9 +413,23 @@ def build_msi(project_dir, wix_path, output_dir=None):
         except Exception as e:
             log(f"Failed to remove {wixpdb_file}: {str(e)}", error=True)
 
-    return msi_file  # Return the path to the created MSI file
+    return msi_file
 
-# Main function with enhanced command-line arguments
+def generate_and_save_wix_files(project_dir, config):
+    wix_element = generate_wix_files(project_dir, config)
+    
+    src_dir = Path(project_dir) / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    
+    package_wxs_path = src_dir / "Package.wxs"
+    
+    xml_str = etree.tostring(wix_element, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+    with open(package_wxs_path, 'wb') as file:
+        file.write(xml_str)
+    
+    log(f"Generated and saved WXS file to {package_wxs_path}")
+    return package_wxs_path
+
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
     parser.add_argument('project_dir', help="The project directory to build or operate on.")
@@ -620,34 +451,25 @@ def main():
         log(f"Project directory created at {args.project_dir}")
     else:
         try:
-            # Check if WiX Toolset is installed
             check_wix_toolset(args.wix_path)
 
-            # Read build-info.yaml
             config = read_build_info(args.project_dir)
 
-            # Generate WiX source files based on payload and scripts
-            try:
-                output_path = generate_wix_files(args.project_dir, config)
-            except Exception as e:
-                log(f"Error in generate_wix_files: {str(e)}", error=True)
-                raise
+            package_wxs_path = generate_and_save_wix_files(args.project_dir, config)
+            print_wxs_content(package_wxs_path)
 
-            # Check if scripts are present
-            has_scripts = bool(get_scripts(args.project_dir))
+            scripts_dir = Path(args.project_dir) / "scripts"
+            has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
 
-            # Verify the generated WiX source files before building the MSI
             if not verify_wxs_files(args.project_dir, has_scripts):
                 log("Verification of WiX source files failed, aborting MSI creation.", error=True)
                 sys.exit(1)
 
-            # Build the MSI package with an optional output directory
             msi_file = build_msi(args.project_dir, args.wix_path, args.output)
             
             if msi_file:
                 log(f"MSI package created successfully: {msi_file}")
                 
-                # Sign the MSI if identity is provided and --no-sign is not used
                 if 'identity' in config and not args.no_sign:
                     if sign_msi(msi_file, config['identity']):
                         log("MSI package signed successfully.")
