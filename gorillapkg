@@ -168,18 +168,9 @@ def add_script_binaries(package, project_dir):
 def add_custom_actions(package, project_dir, binary_info):
     scripts_dir = Path(project_dir) / "scripts"
     if scripts_dir.exists():
-        powershell_property = etree.SubElement(package, "Property", Id="POWERSHELLEXE")
-        etree.SubElement(powershell_property, "RegistrySearch", 
-                         Id="POWERSHELLEXE",
-                         Root="HKLM",
-                         Key="SOFTWARE\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell",
-                         Name="Path",
-                         Type="file")
+        powershell_exe_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        etree.SubElement(package, "Property", Id="POWERSHELLEXE", Value=powershell_exe_path)
         
-        etree.SubElement(package, "Launch", 
-                         Condition="POWERSHELLEXE",
-                         Message="This application requires Windows PowerShell.")
-
         install_execute_sequence = package.find("./InstallExecuteSequence")
         if install_execute_sequence is None:
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
@@ -203,32 +194,14 @@ def add_custom_actions(package, project_dir, binary_info):
                 continue
             
             command_property_id = f"{action_id}Command"
-            etree.SubElement(package, "Property", Id=command_property_id, Value="PLACEHOLDER")
-
             set_property_id = f"Set{action_id}Command"
-            etree.SubElement(package, "CustomAction",
-                             Id=set_property_id,
-                             Property=command_property_id,
-                             Value="[POWERSHELLEXE] -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{0}]'));Invoke-Expression $script\"".format(script_file.stem.upper()),
-                             Execute="immediate",
-                             Return="check")
+            command_value = f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"& {{ $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); Invoke-Expression $script }}\""
 
-            etree.SubElement(package, "CustomAction",
-                             Id=action_id,
-                             Property=command_property_id,
-                             ExeCommand="[{0}]".format(command_property_id),
-                             Execute="deferred",
-                             Return="check",
-                             Impersonate="no")
-
-            etree.SubElement(install_execute_sequence, "Custom", 
-                             Action=set_property_id,
-                             Before=action_id)
-
-            etree.SubElement(install_execute_sequence, "Custom", 
-                             Action=action_id,
-                             **{sequence_position: sequence_ref},
-                             Condition="NOT Installed")
+            etree.SubElement(package, "Property", Id=command_property_id, Value="PLACEHOLDER")
+            etree.SubElement(package, "CustomAction", Id=set_property_id, Property=command_property_id, Value=command_value, Execute="immediate", Return="check")
+            etree.SubElement(package, "CustomAction", Id=action_id, Property=command_property_id, ExeCommand=f"[{command_property_id}]", Execute="deferred", Return="check", Impersonate="no")
+            etree.SubElement(install_execute_sequence, "Custom", Action=set_property_id, Before=action_id)
+            etree.SubElement(install_execute_sequence, "Custom", Action=action_id, **{sequence_position: sequence_ref}, Condition="NOT Installed")
 
         log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
     else:
@@ -311,9 +284,10 @@ def run_command(command, quiet=False, verbose=False):
             log(result.stdout)
         return True, result.stdout
     except subprocess.CalledProcessError as e:
-        log(f"Command failed with return code {e.returncode}: {e.stderr}", error=True)
+        log(f"Command failed with return code {e.returncode}. Error output: {e.stderr}", error=True)
         if not quiet:
-            log(f"Output: {e.stdout}", error=True)
+            log(f"Standard Output: {e.stdout}", error=True)
+            log(f"Standard Error: {e.stderr}", error=True)
         return False, e.stderr
     except Exception as e:
         log(f"An unexpected error occurred: {str(e)}", error=True)
