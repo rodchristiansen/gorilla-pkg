@@ -170,11 +170,11 @@ def add_custom_actions(package, project_dir, binary_info):
     if scripts_dir.exists():
         powershell_exe_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
         etree.SubElement(package, "Property", Id="POWERSHELLEXE", Value=powershell_exe_path)
-        
+
         install_execute_sequence = package.find("./InstallExecuteSequence")
         if install_execute_sequence is None:
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
-        
+
         for script_file in scripts_dir.glob('*.ps1'):
             script_name = script_file.stem.lower()
             if "preinstall" in script_name:
@@ -192,12 +192,20 @@ def add_custom_actions(package, project_dir, binary_info):
             if not binary_id:
                 log(f"Warning: Binary ID not found for script {script_file.stem}", error=True)
                 continue
-            
+
             command_property_id = f"{action_id}Command"
             set_property_id = f"Set{action_id}Command"
-            command_value = f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"& {{ $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); Invoke-Expression $script }}\""
 
-            etree.SubElement(package, "Property", Id=command_property_id, Value="PLACEHOLDER")
+            # Correct command formatting for PowerShell execution
+            command_value = (
+                f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden "
+                f"-ExecutionPolicy Bypass -Command \"& {{ $script = [System.Text.Encoding]::UTF8.GetString("
+                f"[System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); "
+                f"Invoke-Expression $script }}\""
+            )
+
+            # Add properties and custom actions to the package
+            etree.SubElement(package, "Property", Id=command_property_id, Value=command_value)
             etree.SubElement(package, "CustomAction", Id=set_property_id, Property=command_property_id, Value=command_value, Execute="immediate", Return="check")
             etree.SubElement(package, "CustomAction", Id=action_id, Property=command_property_id, ExeCommand=f"[{command_property_id}]", Execute="deferred", Return="check", Impersonate="no")
             etree.SubElement(install_execute_sequence, "Custom", Action=set_property_id, Before=action_id)
