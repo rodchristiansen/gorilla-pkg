@@ -178,11 +178,11 @@ def add_custom_actions(package, project_dir, binary_info):
         for script_file in scripts_dir.glob('*.bat'):
             script_name = script_file.stem.lower()
             if "preinstall" in script_name:
-                action_id = "PreInstallScript"
+                action_id = f"PreInstall_{uuid.uuid4().hex}"
                 sequence_ref = "InstallInitialize"
                 sequence_position = "After"
             elif "postinstall" in script_name:
-                action_id = "PostInstallScript"
+                action_id = f"PostInstall_{uuid.uuid4().hex}"
                 sequence_ref = "InstallFinalize"
                 sequence_position = "Before"
             else:
@@ -214,7 +214,7 @@ def add_custom_actions(package, project_dir, binary_info):
                 Condition="NOT Installed"
             )
 
-        log(f"Added custom actions for {len(list(scripts_dir.glob('*.bat')))} scripts")
+        log(f"Added custom actions for {len(binary_info)} scripts")
     else:
         log("No scripts directory found. Skipping custom actions.")
 
@@ -252,6 +252,7 @@ def generate_wix_files(project_dir, config):
         install_folder = etree.SubElement(package, "StandardDirectory", Id="INSTALLFOLDER")
         current_dir = create_directory_structure(install_folder, install_path)
 
+    # Always create a Feature element
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
     # Adding payload and scripts handling
