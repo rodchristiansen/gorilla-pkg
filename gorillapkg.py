@@ -156,96 +156,95 @@ def add_script_binaries(package, project_dir):
     scripts_dir = Path(project_dir) / "scripts"
     binary_info = {}
     if scripts_dir.exists():
-        for script_file in scripts_dir.glob('*.ps1'):
+        for script_file in scripts_dir.glob('*.bat'):
             binary_id = f"Binary_{script_file.stem}"
-            
-            # Read and encode the script content in base64
+            # Read the script content
             with open(script_file, 'rb') as f:
                 script_content = f.read()
-                encoded_script = base64.b64encode(script_content).decode('utf-8')
-            
+
             # Add Binary element to the package
-            etree.SubElement(package, "Binary", Id=binary_id, SourceFile=str(script_file))
-            
-            # Store the encoded content in the Property for later use in PowerShell command
-            etree.SubElement(package, "Property", Id=f"SCRIPTCONTENT_{script_file.stem.upper()}", Value=encoded_script)
-            binary_info[script_file.stem] = (binary_id, encoded_script)
+            binary_element = etree.SubElement(package, "Binary", Id=binary_id, SourceFile=str(script_file))
+            binary_info[script_file.stem] = binary_id
     return binary_info
 
 def add_custom_actions(package, project_dir, binary_info):
     scripts_dir = Path(project_dir) / "scripts"
     if scripts_dir.exists():
-        powershell_exe_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-        etree.SubElement(package, "Property", Id="POWERSHELLEXE", Value=powershell_exe_path)
-
         # Ensure the InstallExecuteSequence element is present
         install_execute_sequence = package.find("./InstallExecuteSequence")
         if install_execute_sequence is None:
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
 
-        for script_file in scripts_dir.glob('*.ps1'):
+        for script_file in scripts_dir.glob('*.bat'):
             script_name = script_file.stem.lower()
             if "preinstall" in script_name:
-                action_id = "RunPreinstall"
-                sequence_ref = "InstallFiles"
-                sequence_position = "Before"
-            elif "postinstall" in script_name:
-                action_id = "RunPostinstall"
-                sequence_ref = "InstallFinalize"
+                action_id = "PreInstallScript"
+                sequence_ref = "InstallInitialize"
                 sequence_position = "After"
+            elif "postinstall" in script_name:
+                action_id = "PostInstallScript"
+                sequence_ref = "InstallFinalize"
+                sequence_position = "Before"
             else:
                 continue
 
-            binary_id, encoded_script = binary_info.get(script_file.stem, (None, None))
+            binary_id = binary_info.get(script_file.stem)
             if not binary_id:
                 log(f"Warning: Binary ID not found for script {script_file.stem}", error=True)
                 continue
 
-            command_property_id = f"{action_id}Command"
-            set_property_id = f"Set{action_id}Command"
-
-            # Correctly formatted PowerShell command using the base64 encoded script
-            command_value = (
-                f"{powershell_exe_path} -Version 3.0 -NoProfile -NonInteractive -WindowStyle Hidden "
-                f"-ExecutionPolicy Bypass -Command \"& {{ "
-                f"$script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('[SCRIPTCONTENT_{script_file.stem.upper()}]')); "
-                f"Invoke-Expression $script }}\""
+            # Create the custom action to execute the embedded batch file
+            custom_action = etree.SubElement(
+                package,
+                "CustomAction",
+                Id=action_id,
+                BinaryRef=binary_id,
+                Execute="deferred",
+                ExeCommand="",  # No command-line arguments
+                Return="check",
+                Impersonate="no"
             )
 
-            # Setting the Property value directly with the PowerShell command
-            etree.SubElement(package, "Property", Id=command_property_id, Value=command_value)
+            # Schedule the custom action
+            etree.SubElement(
+                install_execute_sequence,
+                "Custom",
+                Action=action_id,
+                **{sequence_position: sequence_ref},
+                Condition="NOT Installed"
+            )
 
-            # Creating CustomAction in WiX 5 compatible format
-            etree.SubElement(package, "CustomAction", Id=set_property_id, Property=command_property_id, Value=command_value, Execute="immediate", Return="check")
-            etree.SubElement(package, "CustomAction", Id=action_id, Property=command_property_id, ExeCommand=f"[{command_property_id}]", Execute="deferred", Return="check", Impersonate="no")
-
-            # Placing CustomAction into the InstallExecuteSequence
-            etree.SubElement(install_execute_sequence, "Custom", Action=set_property_id, Before=action_id)
-            etree.SubElement(install_execute_sequence, "Custom", Action=action_id, **{sequence_position: sequence_ref}, Condition="NOT Installed")
-
-        log(f"Added custom actions for {len(list(scripts_dir.glob('*.ps1')))} scripts")
+        log(f"Added custom actions for {len(list(scripts_dir.glob('*.bat')))} scripts")
     else:
         log("No scripts directory found. Skipping custom actions.")
 
 def generate_wix_files(project_dir, config):
-    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"  # WiX 5 continues to use v4 namespace
+    NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
     install_path = config['install_path'].replace("[username]", os.getlogin())
     standard_directories = get_standard_directories()
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
 
     wix = etree.Element("Wix", nsmap={None: NS_WIX})
-    package = etree.SubElement(wix, "Package", 
-                               Name=config['product']['name'], 
+    package = etree.SubElement(wix, "Package",
+                               Name=config['product']['name'],
                                Version=parse_version(config['product']['version']),
-                               Manufacturer=config['product']['manufacturer'], 
+                               Manufacturer=config['product']['manufacturer'],
                                UpgradeCode=generate_guids(config['product']['identifier'])[1],
-                               InstallerVersion="500", 
+                               InstallerVersion="500",
                                Compressed="yes")
-    
-    etree.SubElement(package, "MajorUpgrade", DowngradeErrorMessage="A newer version of [ProductName] is already installed.")
+
+    # Ensure the InstallExecuteSequence element is present
+    if package.find("./InstallExecuteSequence") is None:
+        etree.SubElement(package, "InstallExecuteSequence")
+
+    # Add MajorUpgrade element
+    etree.SubElement(package, "MajorUpgrade",
+                     DowngradeErrorMessage="A newer version of [ProductName] is already installed.")
+
+    # Add Media element
     etree.SubElement(package, "Media", Id="1", Cabinet="product.cab", EmbedCab="yes")
 
-    # Use INSTALLFOLDER in WiX 5 as the main installation directory
+    # Use INSTALLFOLDER as the main installation directory
     if directory_id:
         install_folder = etree.SubElement(package, "StandardDirectory", Id=directory_id)
         current_dir = create_directory_structure(install_folder, remaining_path)
@@ -426,8 +425,9 @@ def generate_and_save_wix_files(project_dir, config):
 
 def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
-    parser.add_argument('project_dir', help="The project directory to build or operate on.")
+    parser.add_argument('project_dir', nargs='?', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
+    parser.add_argument('--bat', metavar='BATCH_FILE', help="Specify a .bat file to include as a custom action in the MSI.")    
     parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.")
     parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose logging.")
