@@ -152,22 +152,21 @@ def find_standard_directory(install_path, standard_directories):
 
     return None, install_path
 
-def add_script_binaries(package, project_dir):
-    scripts_dir = Path(project_dir) / "scripts"
-    binary_info = {}
-    if scripts_dir.exists():
-        for script_file in scripts_dir.glob('*.bat'):
-            binary_id = f"Binary_{script_file.stem}"
-            # Read the script content
-            with open(script_file, 'rb') as f:
-                script_content = f.read()
+import platform
 
-            # Add Binary element to the package
-            binary_element = etree.SubElement(package, "Binary", Id=binary_id, SourceFile=str(script_file))
-            binary_info[script_file.stem] = binary_id
-    return binary_info
+def get_arch_short():
+    """Determine the architecture suffix for Wix4UtilCA."""
+    arch = platform.machine().lower()
+    if arch in ['x86_64', 'amd64']:
+        return 'x64'
+    elif arch in ['x86', 'i386', 'i686']:
+        return 'x86'
+    elif 'arm' in arch:
+        return 'arm64'
+    else:
+        raise ValueError(f"Unsupported architecture: {arch}")
 
-def add_custom_actions(package, project_dir, binary_info):
+def add_custom_actions(package, project_dir):
     scripts_dir = Path(project_dir) / "scripts"
     if scripts_dir.exists():
         # Ensure the InstallExecuteSequence element is present
@@ -175,56 +174,120 @@ def add_custom_actions(package, project_dir, binary_info):
         if install_execute_sequence is None:
             install_execute_sequence = etree.SubElement(package, "InstallExecuteSequence")
 
-        for script_file in scripts_dir.glob('*.bat'):
-            script_name = script_file.stem.lower()
-            if "preinstall" in script_name:
-                action_id = f"PreInstall_{uuid.uuid4().hex}"
-                sequence_ref = "InstallInitialize"
-                sequence_position = "After"
-            elif "postinstall" in script_name:
-                action_id = f"PostInstall_{uuid.uuid4().hex}"
-                sequence_ref = "InstallFinalize"
-                sequence_position = "Before"
+        script_count = 0  # Counter for the number of scripts processed
+
+        # Namespace for util elements
+        NS_UTIL = "http://wixtoolset.org/schemas/v4/wxs/util"
+
+        # Determine the architecture-specific suffix for Wix4UtilCA
+        arch_suffix = get_arch_short()
+
+        for script_file in scripts_dir.iterdir():
+            if script_file.suffix.lower() == '.js':
+                script_name = script_file.stem.lower()
+
+                if "preinstall" in script_name:
+                    action_id = f"PreInstall_{uuid.uuid4().hex}"
+                    sequence_ref = "InstallInitialize"
+                    sequence_position = "After"
+                elif "postinstall" in script_name:
+                    action_id = f"PostInstall_{uuid.uuid4().hex}"
+                    sequence_ref = "InstallFinalize"
+                    sequence_position = "Before"
+                else:
+                    continue
+
+                # Command line to execute the .js script using cscript.exe
+                cmd_value = f'"[SystemFolder]cscript.exe" //NoLogo "[#File_{script_file.name}]"'
+
+                # Create a SetProperty element to set the command line for WixQuietExec
+                set_property = etree.SubElement(
+                    package,
+                    "SetProperty",
+                    Id=action_id,
+                    Value=cmd_value,
+                    Before=action_id,
+                    Sequence="execute"
+                )
+
+                # Create the CustomAction element referencing WixQuietExec
+                custom_action = etree.SubElement(
+                    package,
+                    "CustomAction",
+                    Id=action_id,
+                    BinaryRef=f"Wix4UtilCA_{arch_suffix}",
+                    DllEntry="WixQuietExec",
+                    Execute="deferred",
+                    Impersonate="no",
+                    Return="check"
+                )
+
+                # Schedule the custom action in the InstallExecuteSequence
+                custom_element = etree.SubElement(
+                    install_execute_sequence,
+                    "Custom",
+                    Action=action_id,
+                    **{sequence_position: sequence_ref},
+                    Condition="NOT Installed"
+                )
+
+                script_count += 1  # Increment the script counter
             else:
-                continue
+                log(f"File {script_file.name} is not a supported script type. Skipping.")
 
-            binary_id = binary_info.get(script_file.stem)
-            if not binary_id:
-                log(f"Warning: Binary ID not found for script {script_file.stem}", error=True)
-                continue
-
-            # Create the custom action to execute the embedded batch file
-            custom_action = etree.SubElement(
-                package,
-                "CustomAction",
-                Id=action_id,
-                BinaryRef=binary_id,
-                Execute="deferred",
-                ExeCommand="",  # No command-line arguments
-                Return="check",
-                Impersonate="no"
-            )
-
-            # Schedule the custom action
-            etree.SubElement(
-                install_execute_sequence,
-                "Custom",
-                Action=action_id,
-                **{sequence_position: sequence_ref},
-                Condition="NOT Installed"
-            )
-
-        log(f"Added custom actions for {len(binary_info)} scripts")
+        if script_count > 0:
+            log(f"Added custom actions for {script_count} scripts using WixQuietExec")
+        else:
+            log("No valid scripts found in the scripts directory.")
     else:
         log("No scripts directory found. Skipping custom actions.")
 
+import os
+
+def find_wix_util_dll():
+    """Locate the WixToolset.Util.wixext DLL for the appropriate architecture."""
+    arch_suffix = get_arch_short()  # Get architecture suffix (x64, x86, arm64)
+    
+    possible_base_paths = [
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Common Files", "WixToolset", "extensions"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Common Files", "WixToolset", "extensions"),
+    ]
+    
+    for base_path in possible_base_paths:
+        extension_path = os.path.join(base_path, "WixToolset.Util.wixext", "5.0.2", "wixext5", "WixToolset.Util.wixext.dll")
+        if os.path.isfile(extension_path):
+            return extension_path
+    
+    log("Could not find WixToolset.Util.wixext.dll. Ensure the file is installed correctly.", error=True)
+    sys.exit(1)
+
+def add_binary_reference(package):
+    """Add the Binary reference for the appropriate architecture."""
+    arch_suffix = get_arch_short()  # Get architecture suffix (x64, x86, arm64)
+    binary_id = f"Wix4UtilCA_{arch_suffix}"
+    
+    # Find the path to the DLL
+    source_file_path = find_wix_util_dll()
+
+    # Create the Binary element
+    etree.SubElement(
+        package,
+        "Binary",
+        Id=binary_id,
+        SourceFile=source_file_path
+    )
+
 def generate_wix_files(project_dir, config):
     NS_WIX = "http://wixtoolset.org/schemas/v4/wxs"
+    NS_UTIL = "http://wixtoolset.org/schemas/v4/wxs/util"
+
+    nsmap = {None: NS_WIX, 'util': NS_UTIL}
+
     install_path = config['install_path'].replace("[username]", os.getlogin())
     standard_directories = get_standard_directories()
     directory_id, remaining_path = find_standard_directory(install_path, standard_directories)
 
-    wix = etree.Element("Wix", nsmap={None: NS_WIX})
+    wix = etree.Element("Wix", nsmap=nsmap)
     package = etree.SubElement(wix, "Package",
                                Name=config['product']['name'],
                                Version=parse_version(config['product']['version']),
@@ -255,27 +318,33 @@ def generate_wix_files(project_dir, config):
     # Always create a Feature element
     feature = etree.SubElement(package, "Feature", Id="MainFeature", Title="Main Feature", Level="1")
 
-    # Adding payload and scripts handling
+    # Adding payload handling
     add_payload_files(current_dir, project_dir, feature)
-    binary_info = add_script_binaries(package, project_dir)
-    add_custom_actions(package, project_dir, binary_info)
+
+    # Add custom actions and binary reference
+    add_custom_actions(package, project_dir)
+    add_binary_reference(package)
 
     return wix
 
 def add_payload_files(current_dir, project_dir, feature):
     payload_dir = Path(project_dir) / "payload"
-    if payload_dir.exists():
-        for file_path in payload_dir.rglob('*'):
-            if file_path.is_file():
-                relative_path = file_path.relative_to(payload_dir)
-                dir_element = get_or_create_directory(current_dir, relative_path.parent)
-                
-                component_id = f"Component_{uuid.uuid4().hex}"
-                component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
-                file_id = f"File_{uuid.uuid4().hex}"
-                etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
-                
-                etree.SubElement(feature, "ComponentRef", Id=component_id)
+    scripts_dir = Path(project_dir) / "scripts"
+    all_files_dir = [payload_dir, scripts_dir]
+
+    for directory in all_files_dir:
+        if directory.exists():
+            for file_path in directory.rglob('*'):
+                if file_path.is_file():
+                    relative_path = file_path.relative_to(directory)
+                    dir_element = get_or_create_directory(current_dir, relative_path.parent)
+
+                    component_id = f"Component_{uuid.uuid4().hex}"
+                    component = etree.SubElement(dir_element, "Component", Id=component_id, Guid=str(uuid.uuid4()))
+                    file_id = f"File_{file_path.name}"
+                    etree.SubElement(component, "File", Id=file_id, Source=str(file_path), KeyPath="yes")
+
+                    etree.SubElement(feature, "ComponentRef", Id=component_id)
 
 def get_or_create_directory(parent, path):
     current = parent
@@ -363,27 +432,112 @@ def sign_msi(msi_file, identity):
     log("MSI package signed successfully.")
     return True
 
+def find_wix_extension_package(extension_name):
+    possible_base_paths = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "WiX Toolset v5.0" / "extensions",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "WiX Toolset v5.0" / "extensions",
+    ]
+
+    for base_path in possible_base_paths:
+        if not base_path.exists():
+            continue
+        extension_path = base_path / extension_name
+        if extension_path.exists():
+            return str(extension_path)
+    return None
+
+def find_wix_extension_dll(extension_name):
+    import glob
+    from pathlib import Path
+
+    possible_base_paths = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Common Files" / "WixToolset" / "extensions",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Common Files" / "WixToolset" / "extensions"
+    ]
+
+    extension_dlls = []
+
+    for base_path in possible_base_paths:
+        if not base_path.exists():
+            continue
+        # Construct the search pattern for the extension DLL
+        search_pattern = f"{extension_name}/*/*/{extension_name}.dll"
+        found_dlls = list(base_path.glob(search_pattern))
+        extension_dlls.extend(found_dlls)
+
+    if not extension_dlls:
+        log(f"Extension DLL for {extension_name} not found in known locations.", error=True)
+        return None
+
+    # Sort the list to pick the latest version
+    extension_dlls.sort()
+    latest_extension_dll = extension_dlls[-1]
+    log(f"Found extension DLL for {extension_name} at {latest_extension_dll}")
+    return str(latest_extension_dll)
+
+def is_wix_extension_installed(wix_path, extension_name):
+    command = f'"{wix_path}\\wix.exe" extension list'
+    success, output = run_command(command, quiet=True)
+    if not success:
+        log("Failed to list WiX extensions.", error=True)
+        return False
+    return extension_name in output
+
+def add_wix_extension(wix_path, extension_name):
+    # Attempt to add the extension by name
+    command = f'"{wix_path}\\wix.exe" extension add {extension_name}'
+    success, output = run_command(command)
+    if success:
+        log(f"WiX extension {extension_name} added successfully by name.")
+        return True
+
+    # If adding by name fails, try adding by path
+    extension_path = find_wix_extension_package(extension_name)
+    if extension_path:
+        command = f'"{wix_path}\\wix.exe" extension add "{extension_path}"'
+        success, output = run_command(command)
+        if success:
+            log(f"WiX extension {extension_name} added successfully from path.")
+            return True
+        else:
+            log(f"Failed to add WiX extension {extension_name} from path.", error=True)
+            return False
+    else:
+        log(f"Could not find the extension package for {extension_name}.", error=True)
+        return False
+
+
 def build_msi(project_dir, wix_path, output_dir=None):
     src_dir = Path(project_dir) / "src"
-    
+
     if output_dir is None:
         output_dir = Path(project_dir) / "build"
     else:
         output_dir = Path(output_dir)
-    
+
     os.makedirs(output_dir, exist_ok=True)
-    
+
     wix_exe = Path(wix_path) / "wix.exe"
     package_wix_file = src_dir / "Package.wxs"
     msi_file_name = f"{read_build_info(project_dir)['product']['name']}.msi"
     msi_file = output_dir / msi_file_name
-    
-    command = f'"{wix_exe}" build -v -out "{msi_file}" "{package_wix_file}"'
+
+    extension_name = "WixToolset.Util.wixext"
+
+    # Check if the extension is installed
+    if not is_wix_extension_installed(wix_path, extension_name):
+        log(f"WiX extension {extension_name} is not installed. Attempting to add it.")
+        if not add_wix_extension(wix_path, extension_name):
+            log(f"Failed to add WiX extension {extension_name}.", error=True)
+            return None
+
+    # Use the extension by name in the build command
+    command = f'"{wix_exe}" build -ext {extension_name} -out "{msi_file}" "{package_wix_file}"'
     success, output = run_command(command)
     if not success:
         log("Failed to create MSI package.", error=True)
         return None
-    
+
     log(f"MSI package created successfully at {msi_file}.")
     
     config = read_build_info(project_dir)
@@ -428,7 +582,6 @@ def main():
     parser = argparse.ArgumentParser(description="gorilla-pkg: A tool for building MSI packages on Windows")
     parser.add_argument('project_dir', nargs='?', help="The project directory to build or operate on.")
     parser.add_argument('--create', action='store_true', help="Create a new project directory with default settings.")
-    parser.add_argument('--bat', metavar='BATCH_FILE', help="Specify a .bat file to include as a custom action in the MSI.")    
     parser.add_argument('--output', metavar='DIRECTORY', help="Specify a different output directory for the built MSI package.")
     parser.add_argument('--wix-path', metavar='WIX_DIRECTORY', help="Specify the path to the WiX Toolset installation.", default=DEFAULT_WIX_BIN_PATH)
     parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose logging.")
@@ -454,7 +607,7 @@ def main():
             print_wxs_content(package_wxs_path)
 
             scripts_dir = Path(args.project_dir) / "scripts"
-            has_scripts = scripts_dir.exists() and any(scripts_dir.glob('*.ps1'))
+            has_scripts = scripts_dir.exists() and (any(scripts_dir.glob('*.vbs')) or any(scripts_dir.glob('*.js')))
 
             if not verify_wxs_files(args.project_dir, has_scripts):
                 log("Verification of WiX source files failed, aborting MSI creation.", error=True)
